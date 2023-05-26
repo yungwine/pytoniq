@@ -1,15 +1,21 @@
 import socket
-from crypto import Server, result
+import time
+
+from crypto import Server, result, enc_cipher, dec_cipher
+from ping_pong import ping_result, parse_pong
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-print(Server.host, Server.port)
+
 s.connect((Server.host, Server.port))
 print('connected')
 s.sendall(result)
 print('sent')
-data = s.recv(1000)
-s.close()
-print('Received', repr(data))
+data = s.recv(1024)
+print('Received', data)
 
-if __name__ == '__main__':
-    pass
+
+s.sendall(ping_result)
+size = s.recv(1024)
+print('Received', size)
+
+parse_pong(size)
