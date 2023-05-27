@@ -15,13 +15,18 @@ data = s.recv(1024)
 print('Received', data)
 print(dec_cipher.decrypt(data))
 
-ping_result = get_ping_request()
-print('sending:', ping_result)
-s.send(ping_result)
+start = time.time()
+qids = []
+for i in range(500):
+    ping_result, qid = get_ping_request()
+    print('sending:', ping_result)
+    s.send(ping_result)
+    qids.append(qid)
 
-data = s.recv(1024)
-parse_pong(data)
+for i in range(500):
+    data = s.recv(80)
+    parse_pong(data, qids[i])
 
 
 if __name__ == '__main__':
-    pass
+    print(time.time() - start)  # less than 1 sec for 500 ping-pong requests!

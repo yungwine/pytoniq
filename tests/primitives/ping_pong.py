@@ -12,7 +12,6 @@ from crypto import enc_cipher, dec_cipher, dec_cipher2, enc_cipher2
 
 
 def get_ping_request():
-    global query_id
     data = b'\x00\x00\x00\x4c'[::-1]
     # data = 0x4c.to_bytes(byteorder='little', length=4)  # length
 
@@ -32,11 +31,10 @@ def get_ping_request():
 
     # ping_result = enc_cipher.encrypt(data)
     ping_result = enc_cipher2.update(data)
+    return ping_result, query_id
 
-    return ping_result
 
-
-def parse_pong(data: bytes):
+def parse_pong(data: bytes, query_id):
     data = dec_cipher.decrypt(data)
     # data_decr = dec_cipher2.update(data) + dec_cipher2.finalize()
     print('decrypted:', data)
