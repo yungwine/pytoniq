@@ -17,14 +17,16 @@ print(dec_cipher.decrypt(data))
 
 start = time.time()
 qids = []
-for i in range(500):
+amount = 6000
+for i in range(amount):
     ping_result, qid = get_ping_request()
     print('sending:', ping_result)
     s.send(ping_result)
     qids.append(qid)
 
-for i in range(500):
+for i in range(amount):
     data = s.recv(80)
+    data = dec_cipher.decrypt(data)
     parse_pong(data, qids[i])
 
 
