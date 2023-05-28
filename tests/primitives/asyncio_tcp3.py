@@ -26,41 +26,28 @@ async def close(writer):
 
 async def listen(reader):
     global is_listening
-    # while True:
-    is_listening = True
+    while True:
+        if queue.qsize() == 0:
+            await asyncio.sleep(0.1)
+            continue
 
-    if queue.qsize() == 0:
-        await asyncio.sleep(0.1)
-
-    for i in range(queue.qsize()):
-        data = await reader.read(80)
-        queue.get().set_result(dec_cipher.decrypt(data))
-    is_listening = False
-    # for i in queue:
-    #     data = await reader.read(80)
-    #     i.set_result(dec_cipher.decrypt(data))
+        for i in range(queue.qsize()):
+            data = await reader.read(80)
+            queue.get().set_result(dec_cipher.decrypt(data))
 
 
 queue = Queue()
-amount = 100
+amount = 5000
 is_listening = False
 
 
-async def ping(writer, reader):
+async def ping(writer):
     global queue
     ping_result, qid = get_ping_request()
-    # print(qid)
     await send(writer, ping_result)
     cor_result = asyncio.get_running_loop().create_future()
-    # queue.append(cor_result)
     queue.put(cor_result)
-    if not is_listening:
-        await listen(reader)
-    # cor_result.set_result(True)
     await cor_result
-    if not is_listening:
-        await listen(reader)
-
     parse_pong(cor_result.result(), qid)
     print('Passed!')
 
@@ -74,10 +61,11 @@ async def main():
 
     # await ping(writer, reader)
     start = time.time()
-    tasks = [ping(writer, reader) for _ in range(amount)]
-    # await listen(reader)
+    tasks = [ping(writer) for _ in range(amount)]
+    asyncio.create_task(listen(reader))
     await asyncio.gather(*tasks)
     print(time.time() - start)
+
 
 if __name__ == '__main__':
     asyncio.run(main())

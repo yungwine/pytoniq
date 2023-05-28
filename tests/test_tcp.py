@@ -1,3 +1,5 @@
+import asyncio
+
 from tonpylib.adnl.client_tcp import AdnlClientTcp
 
 
@@ -12,5 +14,13 @@ client = AdnlClientTcp(
     pub_key_b64
 )
 
+
+async def main():
+    await client.connect()
+    await asyncio.sleep(10)
+
 if __name__ == '__main__':
-    client.connect()
+    # asyncio.run(main(), debug=True)
+    asyncio.get_event_loop().run_until_complete(main())
+
+    # client.connect()

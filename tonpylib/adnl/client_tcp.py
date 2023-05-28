@@ -1,7 +1,9 @@
 import base64
 import hashlib
 import socket
+import asyncio
 import typing
+from queue import Queue
 
 # from .crypto import ed25519Public, ed25519Private, x25519Public, x25519Private
 from .crypto import Server, Client, get_random, create_aes_ctr_cipher, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key
@@ -23,6 +25,12 @@ class AdnlClientTcp:
 
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+        self.reader: asyncio.StreamReader = None  # asyncio StreamReader
+        self.writer: asyncio.StreamWriter = None  # asyncio StreamWriter
+        self.queue = Queue()
+        self.loop = asyncio.get_event_loop()
+        self.delta = 0.1
+
         self.enc_sipher = None
         self.dec_sipher = None
 
@@ -32,16 +40,39 @@ class AdnlClientTcp:
     def decrypt(self, data: bytes) -> bytes:
         return aes_ctr_decrypt(self.dec_sipher, data)
 
-    def recieve(self):
-        size = self.decrypt(self.socket.recv(4))
-        print(size)
+    async def send(self, data: bytes):
+        future = self.loop.create_future()
+        self.writer.write(data)
+        self.queue.put(future)
+        await self.writer.drain()
+        return future
 
-    def connect(self) -> None:  # TODO async
+    async def receive(self, data_len: int) -> bytes:
+        data = await self.reader.read(data_len)
+        return data
+
+    async def listen(self) -> None:
+        while True:
+            if self.queue.qsize() == 0:
+                await asyncio.sleep(self.delta)
+                continue
+
+            for _ in range(self.queue.qsize()):
+                data_len_encrypted = await self.receive(4)
+                data_len = int(self.decrypt(data_len_encrypted)[::-1].hex(), 16)
+                data_encrypted = await self.receive(data_len)
+                data = self.decrypt(data_encrypted)
+                print('recieved', data)
+                self.queue.get().set_result(data)
+
+    async def connect(self) -> None:
         handshake = self.handshake()
-        self.socket.connect((self.server.host, self.server.port))
-        self.socket.send(handshake)
-        self.recieve()
-
+        self.reader, self.writer = await asyncio.open_connection(self.server.host, self.server.port)
+        future = await self.send(handshake)
+        asyncio.create_task(self.listen())
+        asyncio.create_task(self.ping())
+        await future
+        print('connected!')
 
     def handshake(self) -> bytes:
         rand = get_random(160)
@@ -60,8 +91,32 @@ class AdnlClientTcp:
 
         return self.server.get_key_id() + self.client.ed25519_public.encode() + checksum + data
 
+    def get_ping_query(self):
+        data = 0x4c.to_bytes(byteorder='little', length=4)  # length
+        nonce = get_random(32)
+        data += nonce
+        data += 0x4d082b9a.to_bytes(byteorder='little', length=4)  # TL id
+        query_id = get_random(8)
+        data += query_id[::-1]
+        hash = hashlib.sha256(data[4:]).digest()  # checksum
+        data += hash
+        ping_result = self.encrypt(data)
+        return ping_result, query_id
 
+    @staticmethod
+    def parse_pong(data: bytes, query_id):
+        assert data[32:36][::-1].hex() == 'dc69fb03'
+        assert data[36:44][::-1] == query_id
+        checksum = data[44:]
+        hash = hashlib.sha256(data[:44]).digest()
+        assert checksum == hash
 
-
-
+    async def ping(self):
+        while True:
+            await asyncio.sleep(3)
+            ping_query, qid = self.get_ping_query()
+            pong = await self.send(ping_query)
+            await pong
+            self.parse_pong(pong.result(), qid)
+            print('passed!')
 

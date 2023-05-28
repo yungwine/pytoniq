@@ -10,7 +10,6 @@ from crypto import enc_cipher, dec_cipher, dec_cipher2, enc_cipher2
 # from tcp import s, enc_cipher, dec_cipher
 
 
-
 def get_ping_request():
     data = b'\x00\x00\x00\x4c'[::-1]
     # data = 0x4c.to_bytes(byteorder='little', length=4)  # length
@@ -35,10 +34,6 @@ def get_ping_request():
 
 
 def parse_pong(data: bytes, query_id = None):
-    # data = dec_cipher.decrypt(data)
-    # data_decr = dec_cipher2.update(data) + dec_cipher2.finalize()
-    # print('decrypted:', data)
-
     size = int(data[:4][::-1].hex(), 16)
     actual_size = len(data) - 4
 
