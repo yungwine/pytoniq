@@ -34,15 +34,8 @@ def get_ping_request():
 
 
 def parse_pong(data: bytes, query_id = None):
-    size = int(data[:4][::-1].hex(), 16)
-    actual_size = len(data) - 4
-
-    assert size == actual_size
-    assert data[36:40][::-1].hex() == 'dc69fb03'
-    # print('parsed qid', query_id)
-    if query_id is not None:
-        assert data[40:48][::-1] == query_id
-
-    checksum = data[48:]
-    hash = sha256(data[4:48]).digest()
+    assert data[32:36][::-1].hex() == 'dc69fb03'
+    assert data[36:44][::-1] == query_id
+    checksum = data[44:]
+    hash = sha256(data[:44]).digest()
     assert checksum == hash
