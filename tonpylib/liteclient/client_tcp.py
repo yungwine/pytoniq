@@ -1,13 +1,17 @@
 import base64
 import hashlib
+import os
 import socket
 import asyncio
+import sys
 import time
 import typing
 from queue import Queue
 
 # from .crypto import ed25519Public, ed25519Private, x25519Public, x25519Private
 from .crypto import Server, Client, get_random, create_aes_ctr_cipher, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key
+
+from ..tl.generator import TlGenerator
 
 
 class AdnlClientTcp:
@@ -16,7 +20,8 @@ class AdnlClientTcp:
                  host: str,  # ipv4 host
                  port: int,
                  server_pub_key: str,  # server ed25519 public key in base64,
-                 client_private_key: typing.Optional[bytes] = None  # can specify private key, then it's won't be generated
+                 client_private_key: typing.Optional[bytes] = None,  # can specify private key, then it's won't be generated
+                 schemas_path: typing.Optional[str] = None
                  ) -> None:
         self.server = Server(host, port, base64.b64decode(server_pub_key))
         if client_private_key is None:
@@ -24,13 +29,14 @@ class AdnlClientTcp:
         else:
             self.client = Client(client_private_key)
 
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
         self.reader: asyncio.StreamReader = None
         self.writer: asyncio.StreamWriter = None
         self.queue = Queue()
         self.loop = asyncio.get_event_loop()
         self.delta = 0.1
+        if schemas_path is None:
+            schemas_path = os.path.join(os.path.dirname(__file__), os.pardir, 'tl/schemas')
+        self.schemas = TlGenerator(schemas_path).generate()
 
         self.enc_sipher = None
         self.dec_sipher = None
@@ -82,7 +88,7 @@ class AdnlClientTcp:
             data_encrypted = await self.receive(data_len)
             data = self.decrypt(data_encrypted)
 
-            print('recieved', data_len)
+            # print('recieved', data_len)
 
             item.set_result(data)
             # self.queue.task_done()
@@ -110,7 +116,7 @@ class AdnlClientTcp:
         data = 0x4c.to_bytes(byteorder='little', length=4)  # length
         nonce = get_random(32)
         data += nonce
-        data += 0x4d082b9a.to_bytes(byteorder='little', length=4)  # TL id
+        data += self.schemas.get_by_name('tcp.ping').little_id()
         query_id = get_random(8)
         data += query_id[::-1]
         hash = hashlib.sha256(data[4:]).digest()  # checksum
@@ -118,9 +124,8 @@ class AdnlClientTcp:
         ping_result = self.encrypt(data)
         return ping_result, query_id
 
-    @staticmethod
-    def parse_pong(data: bytes, query_id):
-        assert data[32:36][::-1].hex() == 'dc69fb03'
+    def parse_pong(self, data: bytes, query_id):
+        assert data[32:36] == self.schemas.get_by_name('tcp.pong').little_id()
         assert data[36:44][::-1] == query_id
         checksum = data[44:]
         hash = hashlib.sha256(data[:44]).digest()
@@ -139,7 +144,7 @@ class AdnlClientTcp:
         data = 0x74.to_bytes(byteorder='little', length=4)  # length
         nonce = get_random(32)
         data += nonce
-        data += 0x7af98bb4.to_bytes(byteorder='big', length=4)
+        data += self.schemas.get_by_name('adnl.message.query').little_id()
         qid = get_random(32)
         data += qid
         data += b'\x0c'
@@ -156,8 +161,8 @@ class AdnlClientTcp:
         await info
         info = info.result()
 
-        assert info[32:36] == b'\x16\x84\xac\x0f'  # TL id
-        print(info[36:68].hex(), qid.hex())
+        assert info[32:36] == self.schemas.get_by_name('adnl.message.answer').little_id()  # TL id
+        # print(info[36:68].hex(), qid.hex())
         # assert info[36:68].hex() == qid.hex()
         # assert info[36:98][::-1] == qid
         # TODO change query system, implement query_id

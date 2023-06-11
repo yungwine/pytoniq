@@ -160,3 +160,5 @@ cython_debug/
 #.idea/
 /main.py
 /tests/primitives/mytonlib_test.py
+/tests/primitives/usr/
+.idea
