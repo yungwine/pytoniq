@@ -8,7 +8,7 @@ import timeit
 
 class TlSchema:
 
-    def __init__(self, id: typing.Optional[bytes], name: typing.Optional[str], args: typing.List[tuple]):
+    def __init__(self, id: typing.Optional[bytes], name: typing.Optional[str], args: dict):
         self._id = id
         self._name = name
         self._args = args
@@ -33,7 +33,7 @@ class TlSchema:
 
     @classmethod
     def empty(cls):
-        return cls(None, None, [()])
+        return cls(None, None, {})
 
     def __repr__(self):
         return f'TL Schema {self._name} №{self._id.hex()} with args {self._args}'
@@ -47,6 +47,15 @@ class TlSchemas:
         self.id_map: typing.Dict[bytes, TlSchema] = {}
         self.name_map: typing.Dict[str, TlSchema] = {}
         self.generate_map()
+        self.base_types = {  # bytes
+            'int': 4,
+            'long': 8,
+            'int128': 16,
+            'int256': 32,
+            'string': None,
+            'bytes': None,
+            'vector': None
+        }
 
     def get_by_id(self, tl_id: typing.Union[bytes, int], byteorder: typing.Literal['little', 'big'] = 'big') -> TlSchema:
         """
@@ -76,6 +85,48 @@ class TlSchemas:
             self.id_map[schema.id] = schema
             self.name_map[schema.name] = schema
 
+    def serialize(self, schema: TlSchema, data: dict) -> bytes:
+        # https://core.telegram.org/mtproto/serialize
+        """
+        :param schema: TlSchema object
+        :param data: {'key': value}
+        :return: TL-serialized bytes
+        """
+        result = schema.little_id()
+        for field, type_ in schema.args.items():
+            print(schema.name, field, type_)
+            value = data[field]
+            if type_ in self.base_types:
+                byte_len = self.base_types.get(type_)
+                if byte_len is not None:
+                    if isinstance(value, bytes):
+                        result += value[:byte_len][::-1] + b'\x00' * max(0, byte_len - len(value))
+                    if isinstance(value, int):
+                        result += value.to_bytes(length=byte_len, byteorder='little', signed=True)
+                else:
+                    if type_ == 'bytes':
+                        if isinstance(value, bytes):
+                            temp = b''
+                            bytes_len = len(value)
+                            # print(schema.name, bytes_len, bytes_len, value)
+                            if bytes_len <= 253:
+                                temp += bytes_len.to_bytes(length=1, byteorder='little')
+                            else:
+                                temp += b'\xFE' + bytes_len.to_bytes(length=3, byteorder='little')
+                            temp += value
+                            if len(temp) % 4:
+                                temp += (4 - len(temp) % 4) * b'\x00'
+                            result += temp
+                        else:
+                            pass  # TODO
+            else:
+                result += self.serialize(self.get_by_name(type_), value)
+        return result
+
+    # def serialize_tcp_packet(self, nonce: bytes, data: bytes):
+
+
+
     def __repr__(self):
         return '[' + '\n'.join([i.__repr__() for i in self.list]) + ']'
 
@@ -93,7 +144,7 @@ class TlRegistrator:
             name = split_name[0]
         else:
             tl_id = self.get_id(schema.strip())
-        args = self._re.findall(schema)
+        args = {i: j for i, j in self._re.findall(schema)}
         # print(schema, args)
         return TlSchema(tl_id, name, args)
 
@@ -135,18 +186,33 @@ class TlGenerator:
     def from_file(self, file_path: str):
         result = []
         with open(file_path, 'r') as f:
+            temp = ''
             for line in f:
                 stripped = line.strip()
                 if not stripped or stripped.startswith('//'):
                     continue
+                if ';' not in stripped:
+                    temp += stripped
                 result.append(self._registrator.register(stripped))
         return result
 
 
 if __name__ == '__main__':
     s = time.time()
-    # print(timeit.timeit('TlGenerator("schemas/lite_api.tl", TlRegistrator()).generate()', globals=globals(), number=3000))
-    # schemas = TlGenerator('schemas', TlRegistrator()).generate()
+    # print(timeit.timeit('TlGenerator("schemas/lite_api.tl", TlRegistrator()).generate()', globals=globals(), number=1000))
+    schemas = TlGenerator('schemas', TlRegistrator()).generate()
     # print(schemas.get_by_name('liteServer.getMasterchainInfo').id.hex())
-    # print(schemas)
+    print(schemas)
     print(time.time() - s)
+
+    ping = schemas.get_by_name('tcp.ping')
+    print(schemas.serialize(ping, {'random_id': b'\x01\x02'}))
+
+    # query = schemas.get_by_name('adnl.message.query')
+    # liteserver = schemas.get_by_name('liteServer.query')
+    # master = schemas.get_by_name('liteServer.getMasterchainInfo')
+    # print(schemas.serialize(master, {}))
+    # s = schemas.serialize(liteserver, {'data': schemas.serialize(master, {})})
+    # s3 = schemas.serialize(liteserver, {'data': schemas.serialize(master, {})})
+    # s2 = schemas.serialize(query, {'query_id': 1234, 'query': schemas.serialize(liteserver, {'data': schemas.serialize(master, {})})})
+    # print(s.hex(), s3.hex(), s2.hex())

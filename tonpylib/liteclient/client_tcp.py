@@ -11,7 +11,7 @@ from queue import Queue
 # from .crypto import ed25519Public, ed25519Private, x25519Public, x25519Private
 from .crypto import Server, Client, get_random, create_aes_ctr_cipher, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key
 
-from ..tl.generator import TlGenerator
+from ..tl.generator import TlGenerator, TlSchema, TlSchemas
 
 
 class AdnlClientTcp:
@@ -23,23 +23,32 @@ class AdnlClientTcp:
                  client_private_key: typing.Optional[bytes] = None,  # can specify private key, then it's won't be generated
                  schemas_path: typing.Optional[str] = None
                  ) -> None:
+        self.queue = Queue()
+
+        """########### crypto ###########"""
         self.server = Server(host, port, base64.b64decode(server_pub_key))
         if client_private_key is None:
             self.client = Client(Client.generate_ed25519_private_key())  # recommended
         else:
             self.client = Client(client_private_key)
+        self.enc_sipher = None
+        self.dec_sipher = None
 
+        """########### connection ###########"""
         self.reader: asyncio.StreamReader = None
         self.writer: asyncio.StreamWriter = None
-        self.queue = Queue()
         self.loop = asyncio.get_event_loop()
-        self.delta = 0.1
+        self.delta = 0.1  # listen delay
+
+        """########### TL ###########"""
         if schemas_path is None:
             schemas_path = os.path.join(os.path.dirname(__file__), os.pardir, 'tl/schemas')
         self.schemas = TlGenerator(schemas_path).generate()
-
-        self.enc_sipher = None
-        self.dec_sipher = None
+        # for better performance:
+        self.ping_sch = self.schemas.get_by_name('tcp.ping')
+        self.pong_sch = self.schemas.get_by_name('tcp.pong')
+        self.adnl_query_sch = self.schemas.get_by_name('adnl.message.query')
+        self.ls_query_sch = self.schemas.get_by_name('liteServer.query')
 
     def encrypt(self, data: bytes) -> bytes:
         return aes_ctr_encrypt(self.enc_sipher, data)
@@ -112,15 +121,36 @@ class AdnlClientTcp:
         data = aes_ctr_encrypt(init_cipher, rand)
         return self.server.get_key_id() + self.client.ed25519_public.encode() + checksum + data
 
+    @staticmethod
+    def serialize_packet(data: bytes):
+        result = (len(data) + 64).to_bytes(4, 'little')
+        result += get_random(32)  # nonce
+        result += data  # useful data
+        result += hashlib.sha256(result[4:]).digest()  # hashsum
+        return result
+
+    def serialize_adnl_ls_query(self, schema: TlSchema, data: dict) -> tuple:
+        """
+        :param schema: TL schema
+        :param data: dict
+        :return: result_bytes, qid
+        """
+        qid = get_random(32)
+        res = self.schemas.serialize(
+            self.adnl_query_sch,
+            {'query_id': qid,
+             'query': self.schemas.serialize(self.ls_query_sch,
+                                             {'data': self.schemas.serialize(schema, data)}
+                                             )
+             }
+        )
+        return res, qid
+
     def get_ping_query(self):
-        data = 0x4c.to_bytes(byteorder='little', length=4)  # length
-        nonce = get_random(32)
-        data += nonce
-        data += self.schemas.get_by_name('tcp.ping').little_id()
+        ping_sch = self.schemas.get_by_name('tcp.ping')
         query_id = get_random(8)
-        data += query_id[::-1]
-        hash = hashlib.sha256(data[4:]).digest()  # checksum
-        data += hash
+        data = self.schemas.serialize(ping_sch, {'random_id': query_id})
+        data = self.serialize_packet(data)
         ping_result = self.encrypt(data)
         return ping_result, query_id
 
@@ -141,30 +171,13 @@ class AdnlClientTcp:
             print('passed!')
 
     async def get_masterchain_info(self):
-        data = 0x74.to_bytes(byteorder='little', length=4)  # length
-        nonce = get_random(32)
-        data += nonce
-        data += self.schemas.get_by_name('adnl.message.query').little_id()
-        qid = get_random(32)
-        data += qid
-        data += b'\x0c'
-        data += b'\xdf\x06\x8c\x79'
-        data += b'\x04'
-        data += b'\x2e\xe6\xb5\x89'
-        data += b'\x00\x00\x00'
-        data += b'\x00\x00\x00'
-        data += hashlib.sha256(data[4:]).digest()
-
-        # info = await self.send_and_wait(self.encrypt(data))
+        master_sch = self.schemas.get_by_name('liteServer.getMasterchainInfo')
+        data, qid = self.serialize_adnl_ls_query(master_sch, {})
+        data = self.serialize_packet(data)
         info = await self.send_and_encrypt(data)
 
         await info
         info = info.result()
 
         assert info[32:36] == self.schemas.get_by_name('adnl.message.answer').little_id()  # TL id
-        # print(info[36:68].hex(), qid.hex())
-        # assert info[36:68].hex() == qid.hex()
-        # assert info[36:98][::-1] == qid
         # TODO change query system, implement query_id
-
-
