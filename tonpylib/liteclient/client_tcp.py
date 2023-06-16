@@ -20,10 +20,13 @@ class AdnlClientTcp:
                  host: str,  # ipv4 host
                  port: int,
                  server_pub_key: str,  # server ed25519 public key in base64,
-                 client_private_key: typing.Optional[bytes] = None,  # can specify private key, then it's won't be generated
+                 client_private_key: typing.Optional[bytes] = None,
+                 # can specify private key, then it's won't be generated
                  schemas_path: typing.Optional[str] = None
                  ) -> None:
+        self.tasks = {}
         self.queue = Queue()
+        self.inited = False
 
         """########### crypto ###########"""
         self.server = Server(host, port, base64.b64decode(server_pub_key))
@@ -56,11 +59,12 @@ class AdnlClientTcp:
     def decrypt(self, data: bytes) -> bytes:
         return aes_ctr_decrypt(self.dec_sipher, data)
 
-    async def send(self, data: bytes):
+    async def send(self, data: bytes, qid: typing.Union[str, int, None]) -> asyncio.Future:
         future = self.loop.create_future()
         self.writer.write(data)
         await self.writer.drain()
-        self.queue.put(future)
+        # self.queue.put(future)
+        self.tasks[qid] = future
         return future
 
     async def send_and_wait(self, data: bytes):
@@ -71,11 +75,12 @@ class AdnlClientTcp:
         await future
         return future.result()
 
-    async def send_and_encrypt(self, data: bytes):
+    async def send_and_encrypt(self, data: bytes, qid: str) -> asyncio.Future:
         future = self.loop.create_future()
         self.writer.write(self.encrypt(data))
         await self.writer.drain()
-        self.queue.put(future)
+        self.tasks[qid] = future
+        # self.queue.put(future)
         return future
 
     async def receive(self, data_len: int) -> bytes:
@@ -88,28 +93,25 @@ class AdnlClientTcp:
 
     async def listen(self) -> None:
         while True:
-            while self.queue.qsize() == 0:
+            while not self.tasks:
                 await asyncio.sleep(self.delta)
-            item = self.queue.get_nowait()
 
             data_len_encrypted = await self.receive(4)
             data_len = int(self.decrypt(data_len_encrypted)[::-1].hex(), 16)
             data_encrypted = await self.receive(data_len)
-            data = self.decrypt(data_encrypted)
-
-            # print('recieved', data_len)
-
-            item.set_result(data)
-            # self.queue.task_done()
+            result = self.deserialize_adnl_query(self.decrypt(data_encrypted))
+            qid = result.get('query_id', result.get('random_id'))
+            request = self.tasks.pop(qid)
+            request.set_result(result.get('answer', {}))
 
     async def connect(self) -> None:
         handshake = self.handshake()
         self.reader, self.writer = await asyncio.open_connection(self.server.host, self.server.port)
-        future = await self.send(handshake)
-        asyncio.create_task(self.listen(), name='listener')
-        asyncio.create_task(self.ping(), name='pinger')
+        future = await self.send(handshake, None)
+        self.listener = asyncio.create_task(self.listen(), name='listener')
+        self.pinger = asyncio.create_task(self.ping(), name='pinger')
         await future
-        print('connected!')
+        # print('connected!')
 
     def handshake(self) -> bytes:
         rand = get_random(160)
@@ -129,7 +131,7 @@ class AdnlClientTcp:
         result += hashlib.sha256(result[4:]).digest()  # hashsum
         return result
 
-    def serialize_adnl_ls_query(self, schema: TlSchema, data: dict) -> tuple:
+    def serialize_adnl_ls_query(self, schema: TlSchema, data: dict) -> typing.Tuple[bytes, str]:
         """
         :param schema: TL schema
         :param data: dict
@@ -144,7 +146,10 @@ class AdnlClientTcp:
                                              )
              }
         )
-        return res, qid
+        return res, qid[::-1].hex()
+
+    def deserialize_adnl_query(self, data: bytes) -> dict:
+        return self.schemas.deserialize(data[32:], boxed=True)[0]
 
     def get_ping_query(self):
         ping_sch = self.schemas.get_by_name('tcp.ping')
@@ -152,32 +157,41 @@ class AdnlClientTcp:
         data = self.schemas.serialize(ping_sch, {'random_id': query_id})
         data = self.serialize_packet(data)
         ping_result = self.encrypt(data)
-        return ping_result, query_id
-
-    def parse_pong(self, data: bytes, query_id):
-        assert data[32:36] == self.schemas.get_by_name('tcp.pong').little_id()
-        assert data[36:44][::-1] == query_id
-        checksum = data[44:]
-        hash = hashlib.sha256(data[:44]).digest()
-        assert checksum == hash
+        return ping_result, int.from_bytes(query_id, 'little', signed=True)
 
     async def ping(self):
         while True:
             await asyncio.sleep(3)
             ping_query, qid = self.get_ping_query()
-            pong = await self.send(ping_query)
+            pong = await self.send(ping_query, qid)
             await pong
-            self.parse_pong(pong.result(), qid)
-            print('passed!')
+            # print('passed!')
+
+    async def liteserver_request(self, tl_schema_name: str, data: dict):
+        schema = self.schemas.get_by_name('liteServer.' + tl_schema_name)
+        data, qid = self.serialize_adnl_ls_query(schema, data)
+        data = self.serialize_packet(data)
+        resp = await self.send_and_encrypt(data, qid)
+        await resp
+        return resp.result()
 
     async def get_masterchain_info(self):
-        master_sch = self.schemas.get_by_name('liteServer.getMasterchainInfo')
-        data, qid = self.serialize_adnl_ls_query(master_sch, {})
+        return await self.liteserver_request('getMasterchainInfo', {})
+
+    async def get_block(self, wc: int, shard: int, seqno: int):
+
+        # data = {'id': {'workchain': -1, 'shard': -9223372036854775808, 'seqno': 30293401,
+        #                'root_hash': 'd3952a9d330490c829908a1c2d1b33f295adc8ae9954ace0993c956b68f3a899',
+        #                'file_hash': 'b45c00aaf9cd2dd02fdece2f2023925f6c2a36f26d7c6550a3ff6122754e0f37',
+        #                '@name': 'tonNode.blockIdExt'}}
+        return await self.liteserver_request('getBlock', {'id': {'workchain': wc, 'shard': shard, 'seqno': seqno}})
+        sch = self.schemas.get_by_name('getBlock')
+        print(sch)
+        data, qid = self.serialize_adnl_ls_query(sch, data)
         data = self.serialize_packet(data)
         info = await self.send_and_encrypt(data)
 
         await info
         info = info.result()
-
         assert info[32:36] == self.schemas.get_by_name('adnl.message.answer').little_id()  # TL id
-        # TODO change query system, implement query_id
+        print(info)

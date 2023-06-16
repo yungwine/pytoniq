@@ -8,10 +8,11 @@ import timeit
 
 class TlSchema:
 
-    def __init__(self, id: typing.Optional[bytes], name: typing.Optional[str], args: dict):
+    def __init__(self, id: typing.Optional[bytes], name: typing.Optional[str], args: dict, boxed: bool):
         self._id = id
         self._name = name
         self._args = args
+        self._boxed = boxed
 
     @property
     def id(self):
@@ -25,6 +26,10 @@ class TlSchema:
         return self._name
 
     @property
+    def boxed(self):
+        return self._boxed
+
+    @property
     def args(self):
         return self._args
 
@@ -33,7 +38,7 @@ class TlSchema:
 
     @classmethod
     def empty(cls):
-        return cls(None, None, {})
+        return cls(None, None, {}, False)
 
     def __repr__(self):
         return f'TL Schema {self._name} №{self._id.hex()} with args {self._args}'
@@ -42,20 +47,21 @@ class TlSchema:
 
 class TlSchemas:
 
+    base_types = {  # bytes
+        'int': 4,
+        'long': 8,
+        'int128': 16,
+        'int256': 32,
+        'string': None,
+        'bytes': None,
+        'vector': None
+    }
+
     def __init__(self, schemas: typing.List[TlSchema]):
         self.list: list = schemas
         self.id_map: typing.Dict[bytes, TlSchema] = {}
         self.name_map: typing.Dict[str, TlSchema] = {}
         self.generate_map()
-        self.base_types = {  # bytes
-            'int': 4,
-            'long': 8,
-            'int128': 16,
-            'int256': 32,
-            'string': None,
-            'bytes': None,
-            'vector': None
-        }
 
     def get_by_id(self, tl_id: typing.Union[bytes, int], byteorder: typing.Literal['little', 'big'] = 'big') -> TlSchema:
         """
@@ -94,7 +100,7 @@ class TlSchemas:
         """
         result = schema.little_id()
         for field, type_ in schema.args.items():
-            print(schema.name, field, type_)
+            # print(schema.name, field, type_)
             value = data[field]
             if type_ in self.base_types:
                 byte_len = self.base_types.get(type_)
@@ -123,9 +129,44 @@ class TlSchemas:
                 result += self.serialize(self.get_by_name(type_), value)
         return result
 
-    # def serialize_tcp_packet(self, nonce: bytes, data: bytes):
-
-
+    def deserialize(self, data: bytes, boxed: bool = True, args=None) -> typing.Tuple[dict, int]:
+        i = 0
+        result = {}
+        if boxed:
+            schema = self.get_by_id(data[i:i + 4], 'little')
+            if schema is None:
+                return {}, 0
+            # print('boxed', schema.name)
+            i += 4
+            args = schema.args
+        else:
+            pass
+            # print('not  boxed', args)
+        for field, type_ in args.items():
+            # print(field, type_, args)
+            if type_ in self.base_types:
+                byte_len = self.base_types.get(type_)
+                if byte_len is not None:
+                    if type_ in ('int128', 'int256'):
+                        result[field] = data[i:i + byte_len].hex()
+                    else:
+                        result[field] = int.from_bytes(data[i:i + byte_len], 'big', signed=True)
+                    i += byte_len
+                else:
+                    if type_ == 'bytes':
+                        if data[i:i+1] == b'\xFE':
+                            byte_len = int.from_bytes(data[i+1:i+4], 'little')
+                            i += 4
+                        else:
+                            byte_len = int.from_bytes(data[i:i+1], 'little')
+                            i += 1
+                        result[field], _ = self.deserialize(data[i:i+byte_len])
+                        i += byte_len
+            else:
+                sch = self.get_by_name(type_)
+                result[field], j = self.deserialize(data[i:], sch.boxed, sch.args)
+                i += j
+        return result, i
 
     def __repr__(self):
         return '[' + '\n'.join([i.__repr__() for i in self.list]) + ']'
@@ -135,6 +176,13 @@ class TlRegistrator:
 
     def __init__(self):
         self._re = re.compile(r"\s([^:]+):(\(.+\)|\S+)")
+        self._base_types = TlSchemas.base_types
+
+    def _is_boxed(self, args: dict)-> bool:
+        for type_ in args.values():
+            if type_ not in self._base_types:
+                return True
+        return False
 
     def register(self, schema: str) -> TlSchema:
         name = schema.split(' ')[0]
@@ -145,8 +193,9 @@ class TlRegistrator:
         else:
             tl_id = self.get_id(schema.strip())
         args = {i: j for i, j in self._re.findall(schema)}
+        boxed = self._is_boxed(args)
         # print(schema, args)
-        return TlSchema(tl_id, name, args)
+        return TlSchema(tl_id, name, args, boxed)
 
     @staticmethod
     def clear(schema: str) -> str:
