@@ -1,4 +1,5 @@
 import base64
+import binascii
 import typing
 
 from bitarray.util import ba2int
@@ -48,6 +49,9 @@ class NullCell:
         cell = self.to_cell()
         return Builder().store_cell(cell)
 
+    def copy(self):
+        return NullCell(self.bits.copy(), self.refs.copy(), self.type_)
+
     def __repr__(self) -> str:
         return f'<NullCell {len(self.bits)}[{self.bits.tobytes().hex().upper()}] -> {len(self.refs)} refs>'
 
@@ -74,13 +78,21 @@ class Boc:
         if not isinstance(data, bytes):
             try:
                 data = bytes.fromhex(data)
-            except:
+            except ValueError:
                 try:
                     data = base64.b64decode(data)
-                except:
+                except binascii.Error:
                     raise BocError('boc data in unknown form')
         self.data = data
         self.data_len = len(data)
+
+    @classmethod
+    def from_base64(cls, data: str):
+        return cls(base64.b64decode(data))
+
+    @classmethod
+    def from_hex(cls, data: str):
+        return cls(bytes.fromhex(data))
 
     def parse(self):
         pass

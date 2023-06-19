@@ -89,6 +89,22 @@ class Builder(NullCell):
         self._bits.extend(int2ba(value, size, signed=True))
         return self
 
+    def store_var_uint(self, value: int, bit_length: int):
+        if value == 0:
+            self.store_uint(0, bit_length)
+            return self
+        byte_length = math.ceil(value.bit_length() / 8)
+        return self.store_uint(byte_length, bit_length).store_uint(value, byte_length * 8)
+
+    def store_var_int(self, value: int, bit_length: int):
+        if value == 0:
+            self.store_uint(0, bit_length)
+        byte_length = math.ceil(value.bit_length() / 8)
+        return self.store_uint(byte_length, bit_length).store_int(value, byte_length * 8)
+
+    def store_coins(self, amount: int):
+        return self.store_var_uint(amount, 4)
+
     def store_bytes(self, value: typing.Union[bytes, bytearray]):
         self._bits.frombytes(value)
         return self
@@ -107,10 +123,6 @@ class Builder(NullCell):
         self.store_bits('100')  # address is not None = 10 + anycast = 0
 
         return self.store_int(address.wc, 8).store_bytes(address.hash_part)
-
-    def store_coins(self, amount: int):
-        byte_length = math.ceil(amount.bit_length() / 8)
-        return self.store_uint(byte_length, 4).store_uint(amount, 32)
 
     def store_dict(self): ...
 

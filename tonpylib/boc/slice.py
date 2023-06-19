@@ -1,61 +1,62 @@
 import typing
 from bitarray.util import ba2int
 
-from .deserialize import Boc
+from .deserialize import Boc, NullCell
 from .tvm_bitarray import bitarray, TvmBitarray, BitarrayLike
 from .address import Address
 
 
-class Slice:
+class Slice(NullCell):
 
     def __init__(self, bits: TvmBitarray, refs: typing.List["NullCell"]):
-        self._bits = bits
-        self.refs = refs
+        self.bits = bits.copy()
+        self.refs = refs.copy()
+        # super().__init__(bits, refs, type_)
         self.ref_offset = 0
 
     def preload_bit(self) -> int:
-        return self._bits[0]
+        return self.bits[0]
 
     def load_bit(self) -> int:
         bit = self.preload_bit()
-        del self._bits[0]
+        del self.bits[0]
         return bit
 
     def skip_bits(self, length: int) -> "Slice":
-        del self._bits[:length]
+        del self.bits[:length]
         return self
 
     def preload_bits(self, length: int) -> BitarrayLike:
-        bits = self._bits[:length]
+        bits = self.bits[:length]
         return bits
 
     def load_bits(self, length: int) -> BitarrayLike:
         bits = self.preload_bits(length)
-        del self._bits[:length]
+        del self.bits[:length]
         return bits
 
     def preload_uint(self, length: int) -> int:
-        return ba2int(self._bits[:length], signed=False)
+        return ba2int(self.bits[:length], signed=False)
 
     def load_uint(self, length: int) -> int:
         uint = self.preload_uint(length)
-        del self._bits[:length]
+        del self.bits[:length]
         return uint
 
     def preload_int(self, length: int) -> int:
-        return ba2int(self._bits[:length], signed=True)
+        return ba2int(self.bits[:length], signed=True)
 
     def load_int(self, length: int) -> int:
         integer = self.preload_int(length)
-        del self._bits[:length]
+        del self.bits[:length]
         return integer
 
     def preload_bytes(self, length: int) -> bytes:
-        return self._bits[:length * 8].tobytes()
+        return self.bits[:length * 8].tobytes()
 
     def load_bytes(self, length: int) -> bytes:
         bytes_ = self.preload_bytes(length)
-        del self._bits[:length * 8]
+        del self.bits[:length * 8]
         return bytes_
 
     def preload_address(self) -> typing.Optional[Address]:
@@ -91,10 +92,20 @@ class Slice:
             return None
         return self.load_uint(length * 8)
 
-    def preload_ref(self):
+    def preload_string(self, byte_length: int = 0):
+        if byte_length == 0:
+            byte_length = len(self.bits) // 8
+        return self.preload_bytes(byte_length)
+
+    def load_string(self, byte_length: int = 0):
+        if byte_length == 0:
+            byte_length = len(self.bits) // 8
+        return self.load_bytes(byte_length)
+
+    def preload_ref(self) -> NullCell:
         return self.refs[self.ref_offset]
 
-    def load_ref(self):
+    def load_ref(self) -> NullCell:
         ref = self.refs[self.ref_offset]
         self.ref_offset += 1
         return ref
@@ -108,20 +119,4 @@ class Slice:
         return cells[0].to_slice()
 
     def __repr__(self) -> str:
-        return f'<Slice {len(self._bits)}[{self._bits.tobytes().hex().upper()}] -> {len(self.refs)} refs>'
-
-    def __str__(self, t=1, comma=False) -> str:
-        """
-        :param t: \t symbols amount before text
-        :param comma: "," after "}"
-        """
-        text = f'{len(self._bits)}[{self._bits.tobytes().hex().upper()}]'
-        if self.refs:
-            text += f' -> {{\n'
-            for index, ref in enumerate(self.refs):
-                next_comma = True if index != len(self.refs) - 1 else False
-                text += '\t' * t + ref.__str__(t + 1, next_comma) + '\n'
-            text += '\t' * (t - 1) + '}'
-        if comma:
-            text += ','
-        return text
+        return f'<Slice {len(self.bits)}[{self.bits.tobytes().hex().upper()}] -> {len(self.refs)} refs>'

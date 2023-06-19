@@ -174,6 +174,10 @@ class Cell(NullCell):
         #     return refs
         # return cls(root_cell.bits, get_refs(root_cell), root_cell.type_)
 
+    def begin_parse(self):
+        from .slice import Slice
+        return Slice(self.bits, self.refs)
+
     def to_tonsdk_cell(self, cell_cls):
         return cell_cls.one_from_boc(self.to_boc())
 
