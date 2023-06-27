@@ -9,7 +9,7 @@ import typing
 from queue import Queue
 
 # from .crypto import ed25519Public, ed25519Private, x25519Public, x25519Private
-from .crypto import Server, Client, get_random, create_aes_ctr_cipher, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key
+from ..crypto.ciphers import Server, Client, get_random, create_aes_ctr_cipher, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key
 
 from ..tl.generator import TlGenerator, TlSchema, TlSchemas
 
@@ -25,7 +25,6 @@ class AdnlClientTcp:
                  schemas_path: typing.Optional[str] = None
                  ) -> None:
         self.tasks = {}
-        self.queue = Queue()
         self.inited = False
 
         """########### crypto ###########"""
@@ -40,6 +39,8 @@ class AdnlClientTcp:
         """########### connection ###########"""
         self.reader: asyncio.StreamReader = None
         self.writer: asyncio.StreamWriter = None
+        self.listener: asyncio.Task = None
+        self.pinger: asyncio.Task = None
         self.loop = asyncio.get_event_loop()
         self.delta = 0.1  # listen delay
 
@@ -47,6 +48,7 @@ class AdnlClientTcp:
         if schemas_path is None:
             schemas_path = os.path.join(os.path.dirname(__file__), os.pardir, 'tl/schemas')
         self.schemas = TlGenerator(schemas_path).generate()
+        # print(self.schemas)
         # for better performance:
         self.ping_sch = self.schemas.get_by_name('tcp.ping')
         self.pong_sch = self.schemas.get_by_name('tcp.pong')
@@ -80,7 +82,6 @@ class AdnlClientTcp:
         self.writer.write(self.encrypt(data))
         await self.writer.drain()
         self.tasks[qid] = future
-        # self.queue.put(future)
         return future
 
     async def receive(self, data_len: int) -> bytes:
@@ -99,8 +100,17 @@ class AdnlClientTcp:
             data_len_encrypted = await self.receive(4)
             data_len = int(self.decrypt(data_len_encrypted)[::-1].hex(), 16)
             data_encrypted = await self.receive(data_len)
-            result = self.deserialize_adnl_query(self.decrypt(data_encrypted))
+            data_decrypted = self.decrypt(data_encrypted)
+            # check hashsum
+            assert hashlib.sha256(data_decrypted[:-32]).digest() == data_decrypted[-32:], 'incorrect checksum'
+
+            result = self.deserialize_adnl_query(data_decrypted[:-32])
+            if not result:
+                # for handshake
+                result = {}
             qid = result.get('query_id', result.get('random_id'))
+            # request = self.tasks.pop(qid) TODO fix
+            # KeyError: -812507560425046269 TODO fix
             request = self.tasks.pop(qid)
             request.set_result(result.get('answer', {}))
 
@@ -111,7 +121,12 @@ class AdnlClientTcp:
         self.listener = asyncio.create_task(self.listen(), name='listener')
         self.pinger = asyncio.create_task(self.ping(), name='pinger')
         await future
-        # print('connected!')
+        self.inited = True
+
+    async def close(self) -> None:
+        for i in asyncio.all_tasks(self.loop):
+            if i.get_name() in ('pinger', 'listener'):
+                i.cancel()
 
     def handshake(self) -> bytes:
         rand = get_random(160)
@@ -157,7 +172,7 @@ class AdnlClientTcp:
         data = self.schemas.serialize(ping_sch, {'random_id': query_id})
         data = self.serialize_packet(data)
         ping_result = self.encrypt(data)
-        return ping_result, int.from_bytes(query_id, 'little', signed=True)
+        return ping_result, int.from_bytes(query_id, 'big', signed=True)
 
     async def ping(self):
         while True:
@@ -165,7 +180,7 @@ class AdnlClientTcp:
             ping_query, qid = self.get_ping_query()
             pong = await self.send(ping_query, qid)
             await pong
-            # print('passed!')
+            print('passed!')
 
     async def liteserver_request(self, tl_schema_name: str, data: dict):
         schema = self.schemas.get_by_name('liteServer.' + tl_schema_name)
@@ -178,20 +193,21 @@ class AdnlClientTcp:
     async def get_masterchain_info(self):
         return await self.liteserver_request('getMasterchainInfo', {})
 
+    async def lookup_block(self, wc: int, shard: int, seqno: int = -1,
+                           lt: typing.Optional[int] = None, utime: typing.Optional[int] = None):
+        mode = 0
+        if seqno != -1:
+            mode = 1
+        if lt is not None:
+            mode = 2
+        if utime is not None:
+            mode = 4
+
+        data = {'mode': mode, 'id': {'workchain': wc, 'shard': shard, 'seqno': seqno}, 'lt': lt, 'utime': utime}
+
+        return await self.liteserver_request('lookupBlock', data)
+
     async def get_block(self, wc: int, shard: int, seqno: int):
-
-        # data = {'id': {'workchain': -1, 'shard': -9223372036854775808, 'seqno': 30293401,
-        #                'root_hash': 'd3952a9d330490c829908a1c2d1b33f295adc8ae9954ace0993c956b68f3a899',
-        #                'file_hash': 'b45c00aaf9cd2dd02fdece2f2023925f6c2a36f26d7c6550a3ff6122754e0f37',
-        #                '@name': 'tonNode.blockIdExt'}}
-        return await self.liteserver_request('getBlock', {'id': {'workchain': wc, 'shard': shard, 'seqno': seqno}})
-        sch = self.schemas.get_by_name('getBlock')
-        print(sch)
-        data, qid = self.serialize_adnl_ls_query(sch, data)
-        data = self.serialize_packet(data)
-        info = await self.send_and_encrypt(data)
-
-        await info
-        info = info.result()
-        assert info[32:36] == self.schemas.get_by_name('adnl.message.answer').little_id()  # TL id
-        print(info)
+        # data = {'id': {'workchain': -1, 'shard': -9223372036854775808, 'seqno': 30528305, 'root_hash': '7c06f2fab30f6bbd77820213666184c9b958e1bd1defac1f70cd4893c199e356', 'file_hash': '92f943cf73caec5ecb8ab66fb118eea3eb3ee97c1a49f310ac28415a0a889d0d'}}
+        data = {'id': {'workchain': -1, 'shard': -9223372036854775808, 'seqno': 30528401, 'root_hash': 'b0c09b7c116f951092b3d1b258fb98adc01c698a227b3b2e268469c24173eeb2', 'file_hash': '90a3ece36fee00c4d4e74cf0c2cdfc87667ec6b1973c0b6d212c3a83eaf2dcac'}}
+        return await self.liteserver_request('getBlock', data)
