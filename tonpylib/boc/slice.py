@@ -8,7 +8,7 @@ from .address import Address
 
 class Slice(NullCell):
 
-    def __init__(self, bits: TvmBitarray, refs: typing.List["NullCell"]):
+    def __init__(self, bits: TvmBitarray, refs: typing.List["NullCell"], type_: int):
         self.bits = bits.copy()
         self.refs = refs.copy()
         # super().__init__(bits, refs, type_)
@@ -110,13 +110,13 @@ class Slice(NullCell):
         self.ref_offset += 1
         return ref
 
-    def load_dict(self): ...
+    def load_dict(self): ...  # TODO
 
-    @staticmethod
-    def one_from_boc(data: typing.Any):
+    @classmethod
+    def one_from_boc(cls, data: typing.Any):
         boc = Boc(data)
-        cells = boc.deserialize()
-        return cells[0].to_slice()
+        cells = boc.deserialize(cls)
+        return cells[0]
 
     def __repr__(self) -> str:
         return f'<Slice {len(self.bits)}[{self.bits.tobytes().hex().upper()}] -> {len(self.refs)} refs>'

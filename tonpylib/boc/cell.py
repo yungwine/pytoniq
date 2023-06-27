@@ -4,6 +4,7 @@ import typing
 from bitarray.util import ba2int
 
 from .deserialize import Boc, NullCell
+from .exotic import LevelMask, CellTypes
 from .tvm_bitarray import TvmBitarray, bitarray, BitarrayLike
 from .utils import bytes_to_uint
 from ..crypto.crc import crc32c
@@ -18,9 +19,6 @@ class Cell(NullCell):
     Cell in tonpy is immutable type.
     If you want to read from cell use .begin_parse() method.
     If you want to write to cell use .to_builder() method.
-
-    tonpy's Cell serialization is 20 times faster than tonsdk's Cell.
-    But for convenience you can initialize this Cell from tonsdk's one or convert this Cell to tonsdk's one.
     """
     def __init__(self, bits: BitarrayLike, refs: typing.List["Cell"], cell_type: int = -1) -> None:
         self.bits: BitarrayLike = bits
@@ -28,26 +26,50 @@ class Cell(NullCell):
         self.type_: int = cell_type
         self.is_exotic: bool = cell_type != -1
         super().__init__(bits, refs, cell_type)
+        if self.is_exotic:
+            ...
 
         """ fast but takes a lot of memory"""
+        self.level_mask: LevelMask = self.resolve_mask()
+        self._hashes: typing.List[bytes] = []
+        self._depths: typing.List[int] = []
+        self.calculate_hashes()
+        # self._level = self.get_level()
         self._descriptors: bytes = self.get_descriptors()
         self._data_bytes: bytes = self.get_data_bytes()
         self._cell_repr: bytes = self.get_representation()
-        self._hash: bytes = self.compute_hash()
+        self._hash = self.calculate_representation_hash()
+
+    def resolve_mask(self) -> LevelMask:
+        if self.type_ == CellTypes.ordinary:
+            # Ordinary Cell level = max(Cell refs)
+            mask = 0
+            for r in self.refs:
+                mask |= r.level_mask.mask
+            return LevelMask(mask)
+        elif self.type_ == CellTypes.pruned_branch:
+            # pruned branch doesn't have refs
+            if self.refs:
+                raise CellError('Pruned branch must not has refs')
+            return LevelMask(int(self.bits[8:16].to01(), 2))
+        elif self.type_ == CellTypes.merkle_proof:
+            # merkle proof cell has exactly one ref
+            return LevelMask(self.refs[0].level_mask.mask >> 1)
+        elif self.type_ == CellTypes.merkle_update:
+            # merkle update cell has 2 refs
+            return LevelMask((self.refs[0].level_mask.mask | self.refs[1].level_mask.mask) >> 1)
+        elif self.type_ == CellTypes.library_ref:
+            return LevelMask(0)
+        else:
+            raise CellError(f'Unknown cell type: {self.type_}')
 
     def to_builder(self):
         from .builder import Builder
         return Builder().store_cell(self)
 
-    def get_level(self) -> int:
-        return 0
-        ...
-        for ref in self.refs:
-            ...
-
-    def get_refs_descriptor(self) -> bytes:
+    def get_refs_descriptor(self, lvl_mask: LevelMask) -> bytes:
         # d1 = r + 8s + 32l
-        d1 = len(self.refs) + 8 * self.is_exotic + 32 * self.get_level()
+        d1 = len(self.refs) + 8 * self.is_exotic + 32 * lvl_mask.mask
         return d1.to_bytes(1, 'big')
 
     def get_bits_descriptor(self) -> bytes:
@@ -57,15 +79,22 @@ class Cell(NullCell):
         d2 += 1 if bit_len % 8 else 0
         return d2.to_bytes(1, 'big')
 
-    def get_descriptors(self) -> bytes:
-        return self.get_refs_descriptor() + self.get_bits_descriptor()
+    def get_descriptors(self, lvl_mask: LevelMask = LevelMask(0)) -> bytes:
+        return self.get_refs_descriptor(lvl_mask) + self.get_bits_descriptor()
 
-    def get_depth(self) -> int:
-        # https://github.com/igroman787/mytonlib/blob/master/mytonlib/mytypes.py#L153
-        depths = [0]
-        for ref in self.refs:
-            depths.append(ref.get_depth() + 1)
-        return max(depths)
+    def get_depth(self, lvl_mask: int = 0) -> int:
+        hash_index = self.level_mask.apply(lvl_mask).get_hash_index()
+        if self.type_ == CellTypes.pruned_branch:
+            pruned_hash_index = self.level_mask.get_hash_index()
+            if hash_index != pruned_hash_index:
+                off = 2 + 32 * pruned_hash_index + hash_index * 2
+                return int.from_bytes(self.get_data_bytes()[off: off + 2], 'big')
+            hash_index = 0
+        return self._depths[hash_index]
+        # depths = [0]
+        # for ref in self.refs:
+        #     depths.append(ref.get_depth() + 1)
+        # return max(depths)
 
     def get_data_bytes(self) -> bytes:
         if isinstance(self.bits, TvmBitarray):
@@ -91,8 +120,75 @@ class Cell(NullCell):
     def hash(self) -> bytes:
         return self._hash
 
-    def compute_hash(self) -> bytes:
-        # Hash(c) := sha256(CellRepr(c))
+    @property
+    def data(self) -> bytes:
+        return self._data_bytes
+
+    def get_hash(self, lvl_mask) -> bytes:
+        # https://github.com/ton-blockchain/ton/blob/master/crypto/vm/cells/DataCell.cpp#L287
+        hash_index = self.level_mask.apply(lvl_mask).get_hash_index()
+        if self.type_ == CellTypes.pruned_branch:
+            pruned_hash_index = self.level_mask.get_hash_index()
+            if hash_index != pruned_hash_index:
+                # print(hash_index, pruned_hash_index, self._data_bytes[2 + (hash_index * 32): 2 + ((hash_index + 1) * 32)].hex().upper())
+                # here we read and return hash of the deleted subtree
+                return self._data_bytes[2 + (hash_index * 32): 2 + ((hash_index + 1) * 32)]
+            hash_index = 0
+        return self._hashes[hash_index]
+
+    def calculate_hashes(self) -> None:
+        # https://github.com/xssnick/tonutils-go/blob/master/tvm/cell/proof.go#L169
+        total_hash_count = self.level_mask.get_hash_index() + 1
+        hash_count = total_hash_count
+        if self.type_ == CellTypes.pruned_branch:
+            hash_count = 1
+        hash_index_offset = total_hash_count - hash_count
+        hash_index = 0
+        level = self.level_mask.get_level()
+        # print([self, self.type_, level, total_hash_count, hash_index_offset])
+        for li in range(0, level + 1):
+            if not self.level_mask.is_significant(li):
+                continue
+            if li < hash_index_offset:  # заменить на range(offset level+1)
+                hash_index += 1
+                continue
+            dsc = self.get_descriptors(self.level_mask.apply(li))
+            hash_ = hashlib.sha256(dsc)
+            if hash_index == hash_index_offset:
+                if li != 0 and self.type_ != CellTypes.pruned_branch:
+                    raise CellError('not pruned or 0')
+                data = self.get_data_bytes()
+                hash_.update(data)
+            else:
+                if li == 0 or self.type_ == CellTypes.pruned_branch:
+                    raise CellError('not pruned or 0')
+                hash_.update(self._hashes[-1])  # ?
+            depth = 0
+            for r in self.refs:
+                if self.type_ in (CellTypes.merkle_proof, CellTypes.merkle_update):
+                    ref_depth = r.get_depth(li + 1)
+                else:
+                    ref_depth = r.get_depth(li)
+                depth_bytes = ref_depth.to_bytes(2, 'big')
+                hash_.update(depth_bytes)
+                if ref_depth > depth:
+                    depth = ref_depth
+            if len(self.refs) > 0:
+                depth += 1
+                if depth >= 1024:  # Cell max depth
+                    raise CellError('depth is more than max depth')
+            for r in self.refs:
+                if self.type_ in (CellTypes.merkle_proof, CellTypes.merkle_update):
+                    hash_.update(r.get_hash(li + 1))
+                else:
+                    hash_.update(r.get_hash(li))
+            off = hash_index - hash_index_offset
+            self._depths.append(depth)
+            self._hashes.append(hash_.digest())
+            hash_index += 1
+
+    def calculate_representation_hash(self) -> bytes:
+        # Hash_repr(c) := sha256(CellRepr(c))
         return hashlib.sha256(self._cell_repr).digest()
 
     def order(self, result: dict = {}) -> dict:
@@ -160,7 +256,7 @@ class Cell(NullCell):
     @classmethod
     def one_from_boc(cls, data: typing.Any):
         boc = Boc(data)
-        cells = boc.deserialize()
+        cells = boc.deserialize(cls)
         if len(cells) > 1:
             raise CellError('expected one root cell')
         root_cell = cells[0]
@@ -176,7 +272,7 @@ class Cell(NullCell):
 
     def begin_parse(self):
         from .slice import Slice
-        return Slice(self.bits, self.refs)
+        return Slice(self.bits, self.refs, self.type_)
 
     def to_tonsdk_cell(self, cell_cls):
         return cell_cls.one_from_boc(self.to_boc())

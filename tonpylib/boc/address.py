@@ -79,7 +79,7 @@ class Address:
         result = base64.b64encode(result).decode()
 
         if is_url_safe:
-            make_url_safe(result)
+            result = make_url_safe(result)
 
         return result
 
@@ -101,10 +101,3 @@ class Address:
 
     def __repr__(self):
         return f'Address<{self.to_str()}>'
-
-
-if __name__ == '__main__':
-    addr = Address('EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG')
-    new_addr = Address(addr)
-    t = timeit.timeit('''addr.to_str()''', globals=globals(), number=1000)
-    print(t)

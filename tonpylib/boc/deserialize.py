@@ -174,7 +174,7 @@ class Boc:
         return result
 
     @staticmethod
-    def deserialize_cell(data: bytes, ref_index_size: int) -> typing.Tuple[NullCell, int]:
+    def deserialize_cell(data: bytes, ref_index_size: int) -> typing.Tuple[dict, int]:
         data_len = len(data)
         refs_descriptor = data[0]
         level = refs_descriptor >> 5
@@ -220,11 +220,14 @@ class Boc:
             cell_refs_indexes.append(bytes_to_uint(data[i: i + ref_index_size]))
             i += ref_index_size
 
-        cell = NullCell(bits, cell_refs_indexes, cell_type)
+        # cell = NullCell(bits, cell_refs_indexes, cell_type)
+        cell = {'bits': bits, 'refs': cell_refs_indexes, 'type': cell_type, 'result': None}
 
         return cell, i
 
-    def deserialize(self):
+    def deserialize(self, cls: type = None):
+        if not cls:
+            raise BocError('you must specify the result class')
 
         header = self.deserialize_boc_header(self.data)
         cells_data = header['cells_data']
@@ -239,14 +242,16 @@ class Boc:
 
         for ci in reversed(range(header['cells_num'])):
             c = cells_array[ci]
-            for ri in range(len(c.refs)):
-                r = c.refs[ri]
+            refs = []
+            for ri in range(len(c['refs'])):
+                r = c['refs'][ri]
                 if r < ci:
                     raise Exception('Topological order is broken')
-                c.refs[ri] = cells_array[r]
+                refs.append(cells_array[r]['result'])
+            cells_array[ci]['result'] = cls(cells_array[ci]['bits'], refs, cells_array[ci]['type'])
 
         root_cells = []
         for ri in header['root_list']:
-            root_cells.append(cells_array[ri])
+            root_cells.append(cells_array[ri]['result'])
 
         return root_cells
