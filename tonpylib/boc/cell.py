@@ -40,6 +40,10 @@ class Cell(NullCell):
         self._cell_repr: bytes = self.get_representation()
         self._hash = self.calculate_representation_hash()
 
+    @classmethod
+    def empty(cls):
+        return cls(TvmBitarray(1023), [], -1)
+
     def resolve_mask(self) -> LevelMask:
         if self.type_ == CellTypes.ordinary:
             # Ordinary Cell level = max(Cell refs)
@@ -215,10 +219,12 @@ class Cell(NullCell):
 
         cells_num = len(ordered_cells)
 
-        cells_len = (cells_num.bit_length() + 7) // 8  # equals to math.ceil(math.log2(ordered_cells + 1) / 8) but 3x faster
+        cells_len = (cells_num.bit_length() + 7) // 8  # equals to math.ceil(math.log2(cells_num + 1) / 8) but 3x faster
 
         # flags = 0_0_0_00_000: has_idx 1bit, hash_crc32 1bit, has_cache_bits 1bit, flags 2bit, size_bytes 3 bit
-        flags = (has_idx * 128 + hash_crc32 * 64 + has_cache_bits * 32 + flags * 8 + cells_len).to_bytes(1, 'big')
+        flags = (has_idx * 128 + hash_crc32 * 64 + has_cache_bits * 32 + flags * 8 + cells_len)
+        flags |= cells_len
+        flags = flags.to_bytes(1, 'big')
 
         payload = b''
 
@@ -232,22 +238,22 @@ class Cell(NullCell):
         payload_len = (len(payload).bit_length() + 7) // 8
 
         root_num = 1  # currently 1
-        root_index = b'\00'
+        root_index = b'\00' * cells_len
 
-        absent = b'\x00'
+        absent = b'\x00' * cells_len
 
         result = b'\xb5\xee\x9cr' + \
                  flags + \
                  payload_len.to_bytes(1, 'big') + \
-                 cells_num.to_bytes(payload_len, 'big') + \
-                 root_num.to_bytes(1, 'big') + \
+                 cells_num.to_bytes(cells_len, 'big') + \
+                 root_num.to_bytes(cells_len, 'big') + \
                  absent + \
                  len(payload).to_bytes(payload_len, 'big') + \
                  root_index
 
         if has_idx:
             for l in serialized_cells_len:
-                result += l.to_bytes(payload_len, 'big')
+                result += l.to_bytes(cells_len, 'big')
         result += payload
         if hash_crc32:
             result += crc32c(result)
