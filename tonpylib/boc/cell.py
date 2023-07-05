@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import typing
 
@@ -278,7 +279,7 @@ class Cell(NullCell):
 
     def begin_parse(self):
         from .slice import Slice
-        return Slice(self.bits, self.refs, self.type_)
+        return Slice(self.bits, copy.deepcopy(self.refs), self.type_)
 
     def to_tonsdk_cell(self, cell_cls):
         return cell_cls.one_from_boc(self.to_boc())

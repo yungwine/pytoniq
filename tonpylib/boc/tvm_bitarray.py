@@ -17,10 +17,10 @@ class TvmBitarrayOverflowException(TvmBitarrayException):
 
 class TvmBitarray(bitarray):
 
-    def __new__(cls, size: int, *args, **kwargs):
+    def __new__(cls, size: int = 1023, *args, **kwargs):
         return super().__new__(cls, *args, **kwargs)
 
-    def __init__(self, size: int, *args, **kwargs):
+    def __init__(self, size: int = 1023, *args, **kwargs):
         if size > 1023:
             raise TvmBitarrayException('bitarray size must be <= 1023')
         self._size = size
@@ -45,6 +45,11 @@ class TvmBitarray(bitarray):
     def frombytes(self, a: BytesLike) -> None:
         self.check_overflow(len(a) * 8)
         super().frombytes(a)
+
+    def copy(self) -> "TvmBitarray":
+        res = self.__new__(TvmBitarray)
+        res.extend(self)
+        return res
 
     def __delitem__(self, item: Union[int, slice]):
         if isinstance(item, slice):

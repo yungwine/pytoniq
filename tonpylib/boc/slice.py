@@ -1,16 +1,20 @@
 import typing
+from copy import deepcopy
 from bitarray.util import ba2int
 
 from .deserialize import Boc, NullCell
+from .cell import Cell
+from .dict.dict import HashMap
 from .tvm_bitarray import bitarray, TvmBitarray, BitarrayLike
 from .address import Address
 
 
 class Slice(NullCell):
 
-    def __init__(self, bits: TvmBitarray, refs: typing.List["NullCell"], type_: int):
+    def __init__(self, bits: TvmBitarray, refs: typing.List[Cell], type_: int):
         self.bits = bits.copy()
-        self.refs = refs.copy()
+        self.refs = refs
+        self.type_ = type_
         # super().__init__(bits, refs, type_)
         self.ref_offset = 0
 
@@ -102,21 +106,38 @@ class Slice(NullCell):
             byte_length = len(self.bits) // 8
         return self.load_bytes(byte_length)
 
-    def preload_ref(self) -> NullCell:
+    def preload_ref(self) -> "Slice":
         return self.refs[self.ref_offset]
 
-    def load_ref(self) -> NullCell:
+    def load_ref(self) -> Cell:
         ref = self.refs[self.ref_offset]
         self.ref_offset += 1
         return ref
 
-    def load_dict(self): ...  # TODO
+    def load_hashmap(self, key_length: int, key_deserializer: typing.Callable = None, value_deserializer: typing.Callable = None):
+        return HashMap.parse(self, key_length, key_deserializer, value_deserializer)
+
+    def preload_dict(self, key_length: int, key_deserializer: typing.Callable = None, value_deserializer: typing.Callable = None):
+        if self.preload_bit():
+            return HashMap.parse(self.preload_ref(), key_length, key_deserializer, value_deserializer)
+        else:
+            return None
+
+    def load_dict(self, key_length: int, key_deserializer: typing.Callable = None, value_deserializer: typing.Callable = None):
+        if self.load_bit():
+            return HashMap.parse(self.load_ref(), key_length, key_deserializer, value_deserializer)
+        else:
+            return None
+
+    @classmethod
+    def from_cell(cls, cell: "Cell"):
+        return cls(cell.bits, cell.refs, cell.type_)
 
     @classmethod
     def one_from_boc(cls, data: typing.Any):
         boc = Boc(data)
-        cells = boc.deserialize(cls)
-        return cells[0]
+        cells = boc.deserialize()
+        return cells[0].begin_parse()
 
     def __repr__(self) -> str:
-        return f'<Slice {len(self.bits)}[{self.bits.tobytes().hex().upper()}] -> {len(self.refs)} refs>'
+        return f'<Slice {len(self.bits)}[{self.bits.tobytes().hex().upper()}] -> {len(self.refs) - self.ref_offset} refs>'

@@ -1,5 +1,6 @@
 import base64
 import binascii
+import copy
 import typing
 
 from bitarray.util import ba2int
@@ -42,7 +43,8 @@ class NullCell:
 
     def to_slice(self):
         from .slice import Slice
-        return Slice(self.bits, self.refs)
+        from .cell import Cell
+        return Slice(self.bits, self.get_refs(Cell), self.type_)
 
     def to_builder(self):
         from .builder import Builder
@@ -50,7 +52,7 @@ class NullCell:
         return Builder().store_cell(cell)
 
     def copy(self):
-        return NullCell(self.bits.copy(), self.refs.copy(), self.type_)
+        return NullCell(self.bits.copy(), copy.deepcopy(self.refs.copy()), self.type_)
 
     def __repr__(self) -> str:
         return f'<NullCell {len(self.bits)}[{self.bits.tobytes().hex().upper()}] -> {len(self.refs)} refs>'
@@ -227,7 +229,8 @@ class Boc:
 
     def deserialize(self, cls: type = None):
         if not cls:
-            raise BocError('you must specify the result class')
+            from .cell import Cell
+            cls = Cell
 
         header = self.deserialize_boc_header(self.data)
         cells_data = header['cells_data']

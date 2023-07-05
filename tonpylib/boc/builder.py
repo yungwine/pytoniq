@@ -1,3 +1,4 @@
+import copy
 import math
 import timeit
 
@@ -51,9 +52,15 @@ class Builder(NullCell):
         self._refs += cell.refs
         return self
 
+    def store_slice(self, cell_slice: "Slice"):
+        self.store_bits(cell_slice.bits)
+        for i in range(cell_slice.ref_offset, len(cell_slice.refs)):
+            self.store_ref(cell_slice.refs[i])
+        return self
+
     def store_ref(self, ref: Cell):
         assert len(self._refs) < 5, 'builder refs overflow'
-        self._refs.append(ref)
+        self._refs.append(copy.deepcopy(ref))
         return self
 
     def store_bit_int(self, bit: int):
@@ -120,7 +127,7 @@ class Builder(NullCell):
         if isinstance(address, str):
             address = Address(address)
 
-        self.store_bits('100')  # address is not None = 10 + anycast = 0
+        self.store_bits('100')  # addr_std$10 + maybe anycast = 0
 
         return self.store_int(address.wc, 8).store_bytes(address.hash_part)
 
@@ -128,3 +135,6 @@ class Builder(NullCell):
 
     def end_cell(self) -> Cell:
         return Cell(self._bits, self._refs)
+
+    def __repr__(self) -> str:
+        return f'<Builder {len(self.bits)}[{self.bits.tobytes().hex().upper()}] -> {len(self.refs)} refs>'
