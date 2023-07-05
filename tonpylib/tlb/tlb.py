@@ -11,9 +11,9 @@ class TlbScheme(ABC):
     """
     This is not the same as TlbSchema in generator.py!
     """
-    @staticmethod
+    @classmethod
     @abstractmethod
-    def serialize(*args): ...
+    def serialize(cls, *args): ...
 
     @classmethod
     @abstractmethod
