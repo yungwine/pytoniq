@@ -1,9 +1,7 @@
 import re
-import time
 import zlib
 import typing
 import os
-import timeit
 
 
 class TlSchema:
@@ -148,7 +146,7 @@ class TlSchemas:
             if schema:  # implicit
                 result += self.serialize(schema, value, boxed=True)
             else:  # explicit
-                print('explicit', self.get_by_name(type_))
+                # print('explicit', self.get_by_name(type_))
                 result += self.serialize(self.get_by_name(type_), value, boxed=False)
         return result
 
@@ -166,10 +164,15 @@ class TlSchemas:
             result = b''
         for field, type_ in schema.args.items():
             # print(schema.name, field, type_)
+            if 'mode' in type_:
+                type_ = type_.split('?')[1]
+                if not data.get(field):
+                    continue
             value = data[field]
             p = self.serialize_field(type_, value)
             result += self.serialize_field(type_, value)
-            # print(field, type_, len(p), p)
+            # print(field, type_, len(p), p.hex())
+            # print(field, value, len(p), p.hex())
         return result
 
     # def deserialize_field(self, data: bytes, ):
@@ -180,11 +183,22 @@ class TlSchemas:
         if boxed:
             schema = self.get_by_id(data[i:i + 4], 'little')
             if not schema:  # is None
-                return {'bytes': data}, len(data)
+                return data, len(data)
+                # return {'bytes': data}, len(data)
             i += 4
             args = schema.args
 
         for field, type_ in args.items():
+            if '?' in type_:
+                index = int(type_[type_.find('.') + 1: type_.find('?')])
+                mask = bin(result.get('mode')).replace('0b', '')[::-1]
+                if index >= len(mask):
+                    continue
+                if mask[index] == '0':
+                    continue
+                type_ = type_.split('?')[-1]
+                # print(field, data[i:])
+
             if type_ in self.base_types:
                 byte_len = self.base_types.get(type_)
                 if byte_len:  # is not None
@@ -198,12 +212,17 @@ class TlSchemas:
                         if data[i:i+1] == b'\xFE':
                             # b'\xFE' means data len took more than one byte
                             byte_len = int.from_bytes(data[i+1:i+4], 'little')
+                            attach_len = 4
                             i += 4
                         else:
+                            attach_len = 1
                             byte_len = int.from_bytes(data[i:i+1], 'little')
                             i += 1
                         result[field], _ = self.deserialize(data[i:i+byte_len])
+                        # print(field, byte_len)
                         i += byte_len
+                        if (byte_len + attach_len) % 4:
+                            i += 4 - (byte_len + attach_len) % 4
                         if type_ == 'string':
                             result[field] = result[field].decode()
             else:

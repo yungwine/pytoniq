@@ -8,10 +8,21 @@ import time
 import typing
 from queue import Queue
 
+from ..boc import Slice, Cell
+from ..boc.address import Address
 # from .crypto import ed25519Public, ed25519Private, x25519Public, x25519Private
 from ..crypto.ciphers import Server, Client, get_random, create_aes_ctr_cipher, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key
+from ..crypto.crc import crc16
 
 from ..tl.generator import TlGenerator, TlSchema, TlSchemas
+from ..tlb.vm_stack import VmStack
+
+
+class LiteClientError(BaseException):
+    pass
+
+class RunGetMethodError(LiteClientError):
+    pass
 
 
 class AdnlClientTcp:
@@ -103,14 +114,12 @@ class AdnlClientTcp:
             data_decrypted = self.decrypt(data_encrypted)
             # check hashsum
             assert hashlib.sha256(data_decrypted[:-32]).digest() == data_decrypted[-32:], 'incorrect checksum'
-
             result = self.deserialize_adnl_query(data_decrypted[:-32])
             if not result:
                 # for handshake
                 result = {}
             qid = result.get('query_id', result.get('random_id'))
-            # request = self.tasks.pop(qid) TODO fix
-            # KeyError: -812507560425046269 TODO fix
+
             request = self.tasks.pop(qid)
             request.set_result(result.get('answer', {}))
 
@@ -182,7 +191,7 @@ class AdnlClientTcp:
             await pong
             print('passed!')
 
-    async def liteserver_request(self, tl_schema_name: str, data: dict):
+    async def liteserver_request(self, tl_schema_name: str, data: dict) -> dict:
         schema = self.schemas.get_by_name('liteServer.' + tl_schema_name)
         data, qid = self.serialize_adnl_ls_query(schema, data)
         data = self.serialize_packet(data)
@@ -211,3 +220,44 @@ class AdnlClientTcp:
         # data = {'id': {'workchain': -1, 'shard': -9223372036854775808, 'seqno': 30528305, 'root_hash': '7c06f2fab30f6bbd77820213666184c9b958e1bd1defac1f70cd4893c199e356', 'file_hash': '92f943cf73caec5ecb8ab66fb118eea3eb3ee97c1a49f310ac28415a0a889d0d'}}
         data = {'id': {'workchain': -1, 'shard': -9223372036854775808, 'seqno': 30528401, 'root_hash': 'b0c09b7c116f951092b3d1b258fb98adc01c698a227b3b2e268469c24173eeb2', 'file_hash': '90a3ece36fee00c4d4e74cf0c2cdfc87667ec6b1973c0b6d212c3a83eaf2dcac'}}
         return await self.liteserver_request('getBlock', data)
+
+    async def run_get_method(self, address: typing.Union[Address, str], method: typing.Union[int, str], stack: list):
+
+        mode = 7  # 111
+
+        block = (await self.get_masterchain_info())['last']  # take from cache TODO
+
+        account = {}
+
+        if isinstance(address, str):
+            address = Address(address)
+
+        if isinstance(address, Address):
+            account['workchain'] = address.wc
+            account['id'] = address.hash_part.hex()
+        else:
+            raise LiteClientError('provided address in unknown form')
+        if isinstance(method, str):
+            method_id = (int.from_bytes(crc16(method.encode()), byteorder='big') & 0xffff) | 0x10000
+        elif isinstance(method, int):
+            method_id = method
+        else:
+            raise LiteClientError('provided method in unknown form')
+        if isinstance(stack, list):
+            stack = VmStack.serialize(stack)
+        else:
+            raise LiteClientError('provided stack in unknown form')
+
+        data = {'mode': mode, 'id': block, 'account': account, 'method_id': method_id, 'params': stack.to_boc()}
+
+        result = await self.liteserver_request('runSmcMethod', data)
+
+        if result['exit_code'] != 0:
+            raise RunGetMethodError(f'get method "{method}" for account {address} returned exit code {result["exit_code"]}')
+
+        # print(Cell.one_from_boc(result['state_proof']))
+        # print(result['shard_proof'].hex())
+        # print(result['proof'])
+        # print(result['result'])
+        print('exit code', result['exit_code'])
+        return VmStack.deserialize(Slice.one_from_boc(result['result']))

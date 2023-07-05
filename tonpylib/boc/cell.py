@@ -254,7 +254,7 @@ class Cell(NullCell):
 
         if has_idx:
             for l in serialized_cells_len:
-                result += l.to_bytes(cells_len, 'big')
+                result += l.to_bytes(payload_len, 'big')
         result += payload
         if hash_crc32:
             result += crc32c(result)

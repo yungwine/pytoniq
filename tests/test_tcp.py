@@ -18,9 +18,19 @@ async def test(req_num: int):
     )
     await client.connect()
     tasks = [client.get_masterchain_info() for _ in range(req_num)]
-    start = time.time()
-    await asyncio.gather(*tasks)
-    return time.time() - start
+
+    start = time.perf_counter()
+    res = await asyncio.gather(*tasks)
+    t = time.perf_counter() - start
+
+    assert len(res) == req_num
+
+    # its like .cancel(), will be  implemented directly in client class
+    for i in asyncio.all_tasks(client.loop):
+        if i.get_name() in ('pinger', 'listener'):
+            i.cancel()
+
+    return t
 
 
 async def main():
@@ -32,12 +42,20 @@ async def main():
     )
     await client.connect()
     print(time.time() - start)
-    tasks = [client.get_masterchain_info() for _ in range(1000)]
-    start = time.time()
-    await asyncio.gather(*tasks)
-    print(time.time() - start)
-    # await client.get_masterchain_info()
-    await asyncio.sleep(10)
+    start = time.perf_counter()
+    print(await client.get_masterchain_info())
+    print(await client.run_get_method(address='EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', method='seqno', stack=[]))
+    # print(await client.lookup_block(wc=-1, shard=-9223372036854775808, utime=1679773451))
+    # print(await client.get_block(-1, -9223372036854775808, 30293401))
+    # print(await client.get_masterchain_info())
+    print(time.perf_counter() - start)
+    i = asyncio.Task
+    # client.loop.stop()
+    print(asyncio.current_task(client.loop).get_name())
+    await client.close()
+    # [i.cancel() for i in list(asyncio.all_tasks(client.loop))[1:]]
+    # await asyncio.sleep(10)
+
 
 if __name__ == '__main__':
     asyncio.run(main(), debug=True)
