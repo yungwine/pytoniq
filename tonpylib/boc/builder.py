@@ -59,7 +59,7 @@ class Builder(NullCell):
         return self
 
     def store_ref(self, ref: Cell):
-        assert len(self._refs) < 5, 'builder refs overflow'
+        assert len(self._refs) <= 4, 'builder refs overflow'
         self._refs.append(copy.deepcopy(ref))
         return self
 

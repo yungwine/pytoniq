@@ -3,7 +3,6 @@ import typing
 import base64
 import binascii
 
-from .utils import make_url_safe
 from ..crypto.crc import crc16
 
 
@@ -48,7 +47,7 @@ class Address:
 
     def is_b64(self, addr: str) -> bool:
         try:
-            decoded = base64.b64decode(addr)
+            decoded = base64.urlsafe_b64decode(addr)
             self.wc = int.from_bytes(decoded[1:2], 'big', signed=True)
             self.hash_part = decoded[2:34]
             if decoded[34:] != crc16(decoded[:34]):
@@ -76,10 +75,11 @@ class Address:
         result = tag.to_bytes(1, 'big') + self.wc.to_bytes(1, 'big', signed=True) + self.hash_part
 
         result += crc16(result)
-        result = base64.b64encode(result).decode()
 
         if is_url_safe:
-            result = make_url_safe(result)
+            result = base64.urlsafe_b64encode(result).decode()
+        else:
+            result = base64.b64encode(result).decode()
 
         return result
 

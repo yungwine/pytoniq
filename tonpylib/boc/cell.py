@@ -261,7 +261,7 @@ class Cell(NullCell):
         return result
 
     @classmethod
-    def one_from_boc(cls, data: typing.Any):
+    def one_from_boc(cls, data: typing.Any) -> "Cell":
         boc = Boc(data)
         cells = boc.deserialize(cls)
         if len(cells) > 1:
@@ -279,7 +279,10 @@ class Cell(NullCell):
 
     def begin_parse(self):
         from .slice import Slice
-        return Slice(self.bits, copy.deepcopy(self.refs), self.type_)
+        return Slice(self.bits.copy(), copy.deepcopy(self.refs), self.type_)
+
+    def copy(self):
+        return Cell(self.bits.copy(), copy.deepcopy(self.refs), self.type_)
 
     def to_tonsdk_cell(self, cell_cls):
         return cell_cls.one_from_boc(self.to_boc())

@@ -19,3 +19,6 @@ class TlbScheme(ABC):
     @abstractmethod
     def deserialize(cls, *args): ...
 
+    def __repr__(self):
+        return str(self.__dict__)
+        # TODO beautiful repr

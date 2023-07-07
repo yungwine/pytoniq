@@ -44,7 +44,7 @@ class NullCell:
     def to_slice(self):
         from .slice import Slice
         from .cell import Cell
-        return Slice(self.bits, self.get_refs(Cell), self.type_)
+        return Slice(self.bits, self.get_refs(Cell), )
 
     def to_builder(self):
         from .builder import Builder
