@@ -2,6 +2,7 @@ import hashlib
 from bitarray import bitarray
 import typing
 
+from .. import Slice, CellTypes
 from ..address import Address
 from ..cell import Cell
 from ..builder import Builder
@@ -93,19 +94,22 @@ class HashMap:
         return serialize_dict(self.map, self.size, self.value_serializer).end_cell()
 
     @classmethod
-    def from_cell(cls, dict_cell: NullCell, key_length: int) -> "HashMap":
-        dict_result = parse_hashmap(dict_cell, key_length)
+    def from_cell(cls, dict_cell: Cell, key_length: int) -> "HashMap":
+        dict_result = parse_hashmap(dict_cell.begin_parse(), key_length)
         map_ = {int(i, 2): j for i, j in dict_result.items()}
         result = cls(key_length)
         result.map = map_
         return result
 
     @staticmethod
-    def parse(dict_cell: NullCell,  # NullCell or any inherited class with dict
+    def parse(dict_cell: Slice,  # NullCell or any inherited class with dict
               key_length: int,  # bits len of key
               key_deserializer: typing.Callable = None,  # func to deserialize keys
               value_deserializer: typing.Callable = None  # func to deserialize values
-              ) -> typing.Union[typing.Dict[int, NullCell], typing.Dict[typing.Any, typing.Any]]:
+              ) -> typing.Union[typing.Dict[int, NullCell], typing.Optional[dict]]:
+
+        if dict_cell.type_ != CellTypes.ordinary:
+            return None
 
         if not key_deserializer:
             key_deserializer = lambda i: int(i, 2)  # by default key_deserializer just converts bitstring to int
