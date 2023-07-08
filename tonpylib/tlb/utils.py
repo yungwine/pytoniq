@@ -20,8 +20,9 @@ class MerkleUpdate(TlbScheme):
     def serialize(cls, *args): ...
 
     @classmethod
-    def deserialize(cls, cell: Cell, deserializer: typing.Callable) -> "MerkleUpdate":
-        assert cell.type_ == CellTypes.merkle_update, f'expected Merkle Update, got {cell.type_}'
+    def deserialize(cls, cell: Cell, deserializer: typing.Callable) -> typing.Optional["MerkleUpdate"]:
+        if cell.type_ != CellTypes.merkle_update:
+            return None
 
         cell_slice = cell.begin_parse()
         old_hash = cell_slice.load_bytes(32)

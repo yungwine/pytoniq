@@ -17,6 +17,10 @@ class Slice(NullCell):
         # super().__init__(bits, refs, type_)
         self.ref_offset = 0
 
+    def is_special(self):
+        from . import CellTypes
+        return False if self.type_ == CellTypes.ordinary else True
+
     def preload_bit(self) -> int:
         return self.bits[0]
 

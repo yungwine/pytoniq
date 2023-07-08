@@ -250,6 +250,8 @@ class ValueFlow(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
+        if cell_slice.is_special():
+            return None
         kwargs = {}
         tag = cell_slice.load_bytes(4)
         if tag == b'\xb8\xe4\x8d\xfb':
@@ -794,6 +796,8 @@ class BlockExtra(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
+        if cell_slice.is_special():
+            return None
         tag = cell_slice.load_bytes(4)
         if tag != b'J3\xf6\xfd':
             raise BlockError(f'BlockExtra deserialization error tag: {tag}')
