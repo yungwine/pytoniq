@@ -43,8 +43,15 @@ async def main():
     await client.connect()
     print(time.time() - start)
     start = time.perf_counter()
-    print(await client.get_masterchain_info())
-    print(await client.run_get_method(address='EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', method='seqno', stack=[]))
+    last = (await client.get_masterchain_info_ext())['last']
+    resp = await client.get_time()
+    resp = await client.get_version()
+    resp = await client.get_state(last['workchain'], last['shard'], last['seqno'], last['root_hash'], last['file_hash'])
+    resp = await client.get_block_header(last['workchain'], last['shard'], last['seqno'], last['root_hash'], last['file_hash'])
+
+    print(resp)
+    # print(await client.get_masterchain_info())
+    # print(await client.run_get_method(address='EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', method='seqno', stack=[]))
     # print(await client.lookup_block(wc=-1, shard=-9223372036854775808, utime=1679773451))
     # print(await client.get_block(-1, -9223372036854775808, 30293401))
     # print(await client.get_masterchain_info())

@@ -249,6 +249,7 @@ class TlRegistrator:
         return False
 
     def register(self, schema: str) -> TlSchema:
+        schema = schema.split('//')[0]
         name = schema.split(' ')[0]
         if '#' in name:
             split_name = name.split('#')

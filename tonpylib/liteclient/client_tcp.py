@@ -11,17 +11,21 @@ from queue import Queue
 from ..boc import Slice, Cell
 from ..boc.exotic import check_proof
 from ..boc.address import Address
+
 # from .crypto import ed25519Public, ed25519Private, x25519Public, x25519Private
 from ..crypto.ciphers import Server, Client, get_random, create_aes_ctr_cipher, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key
 from ..crypto.crc import crc16
 
 from ..tl.generator import TlGenerator, TlSchema, TlSchemas
+from ..tl.block import BlockId, BlockIdExt
+
 from ..tlb.vm_stack import VmStack
 from ..tlb.block import Block
 
 
 class LiteClientError(BaseException):
     pass
+
 
 class RunGetMethodError(LiteClientError):
     pass
@@ -200,8 +204,39 @@ class AdnlClientTcp:
         await resp
         return resp.result()
 
+    @staticmethod
+    def pack_block_id_ext(**kwargs):
+        if not kwargs.get('shard'):
+            kwargs['shard'] = -9223372036854775808
+        if isinstance(kwargs['root_hash'], bytes):
+            kwargs['root_hash'] = kwargs['root_hash'].hex()
+        if isinstance(kwargs['file_hash'], bytes):
+            kwargs['file_hash'] = kwargs['file_hash'].hex()
+        return {'id': {'workchain': kwargs['wc'], 'shard': kwargs['shard'], 'seqno': kwargs['seqno'], 'root_hash': kwargs['root_hash'], 'file_hash': kwargs['file_hash']}}
+
     async def get_masterchain_info(self):
         return await self.liteserver_request('getMasterchainInfo', {})
+
+    async def get_masterchain_info_ext(self):
+        return await self.liteserver_request('getMasterchainInfoExt', {'mode': 0})
+
+    async def get_time(self):
+        return await self.liteserver_request('getTime', {})
+
+    async def get_version(self):
+        return await self.liteserver_request('getVersion', {})
+
+    async def get_state(self, wc: int, shard: typing.Optional[int], seqno: int, root_hash: typing.Union[str, bytes], file_hash: typing.Union[str, bytes]):
+        # TODO doesnt work: {'code': -400, 'message': 'cannot request total state: possibly too large'}
+        block = self.pack_block_id_ext(wc=wc, shard=shard, seqno=seqno, root_hash=root_hash, file_hash=file_hash)
+        return await self.liteserver_request('getState', block)
+
+    async def get_block_header(self, wc: int, shard: typing.Optional[int], seqno: int, root_hash: typing.Union[str, bytes], file_hash: typing.Union[str, bytes]):
+        block = self.pack_block_id_ext(wc=wc, shard=shard, seqno=seqno, root_hash=root_hash, file_hash=file_hash)
+        result = await self.liteserver_request('getBlockHeader', block | {'mode': 0})
+        h_proof = Cell.one_from_boc(result['header_proof'])
+        check_proof(h_proof, bytes.fromhex(result['id']['root_hash']))
+        return Block.deserialize(h_proof[0].begin_parse())
 
     async def lookup_block(self, wc: int, shard: int, seqno: int = -1,
                            lt: typing.Optional[int] = None, utime: typing.Optional[int] = None) -> typing.Tuple[dict, Block]:
@@ -231,14 +266,8 @@ class AdnlClientTcp:
         return result['id'], Block.deserialize(h_proof[0].begin_parse())
 
     async def get_block(self, wc: int, shard: typing.Optional[int], seqno: int, root_hash: typing.Union[str, bytes], file_hash: typing.Union[str, bytes]):
-        if not shard:
-            shard = -9223372036854775808
-        if isinstance(root_hash, bytes):
-            root_hash = root_hash.hex()
-        if isinstance(file_hash, bytes):
-            file_hash = file_hash.hex()
-        data = {'id': {'workchain': wc, 'shard': shard, 'seqno': seqno, 'root_hash': root_hash, 'file_hash': file_hash}}
-        result = await self.liteserver_request('getBlock', data)
+        block = self.pack_block_id_ext(wc=wc, shard=shard, seqno=seqno, root_hash=root_hash, file_hash=file_hash)
+        result = await self.liteserver_request('getBlock', block)
         return Block.deserialize(Slice.one_from_boc(result['data']))
 
     async def run_get_method(self, address: typing.Union[Address, str], method: typing.Union[int, str], stack: list):
