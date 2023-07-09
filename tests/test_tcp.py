@@ -34,38 +34,33 @@ async def test(req_num: int):
 
 
 async def main():
-    start = time.time()
     client = AdnlClientTcp(
         host,
         port,
         pub_key_b64
     )
     await client.connect()
-    print(time.time() - start)
-    start = time.perf_counter()
+
+    await client.get_masterchain_info()
     last = (await client.get_masterchain_info_ext())['last']
     resp = await client.get_time()
     resp = await client.get_version()
     resp = await client.get_state(last['workchain'], last['shard'], last['seqno'], last['root_hash'], last['file_hash'])
     resp = await client.get_block_header(last['workchain'], last['shard'], last['seqno'], last['root_hash'], last['file_hash'])
 
-    print(resp)
-    # print(await client.get_masterchain_info())
-    # print(await client.run_get_method(address='EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', method='seqno', stack=[]))
-    # print(await client.lookup_block(wc=-1, shard=-9223372036854775808, utime=1679773451))
-    # print(await client.get_block(-1, -9223372036854775808, 30293401))
-    # print(await client.get_masterchain_info())
-    print(time.perf_counter() - start)
-    i = asyncio.Task
-    # client.loop.stop()
-    print(asyncio.current_task(client.loop).get_name())
+    raw_state = await client.raw_get_account_state('EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG')
+    state = await client.get_account_state('EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG')
+
+    print(raw_state)  # {'last_trans_lt': 39064423000006, 'balance': {'grams': 445885900290, 'other': {'dict': None}}, 'state': {'type_': 'account_active', 'state_init': {'split_depth': None, 'special': None, 'code': <Cell 80[FF00F4A413F4BCF2C80B] -> 1 refs>, 'data': <Cell 321[000000E729A9A317C1B3226CE226D6D818BAFE82D3633AA0F06A6C677272D1F9B760FF0D0DCF56D800] -> 0 refs>, 'library': None}}}
+    print(state)  # <SimpleAccount EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG: state=active, balance={'grams': 445885900290, 'other': {'dict': None}}>
+
+    stack = await client.run_get_method(address='EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', method='seqno', stack=[])
+
+    print(stack)  # [231]
+
+
     await client.close()
-    # [i.cancel() for i in list(asyncio.all_tasks(client.loop))[1:]]
-    # await asyncio.sleep(10)
 
 
 if __name__ == '__main__':
     asyncio.run(main(), debug=True)
-    # asyncio.get_event_loop().run_until_complete(main())
-
-    # client.connect()
