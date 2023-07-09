@@ -48,7 +48,7 @@ def deserialize_hml(ser: Slice, m: int) -> typing.Tuple[int, bitarray]:
         v = ser.load_bit()
         l = m.bit_length()
         n = ser.load_uint(l)
-        s = bitarray(v * n)
+        s = bitarray(str(v) * n)
     return n, s
 
 
@@ -133,4 +133,5 @@ def parse_hashmap_aug(dict_cell: Slice, key_len: int, x_deserializer: typing.Cal
     result = {}
     extras = []
     parse_aug(dict_cell, key_len, result, extras, bitarray(''), x_deserializer, y_deserializer)
+    result = {int(i, 2): j for i, j in result.items()}
     return result, extras

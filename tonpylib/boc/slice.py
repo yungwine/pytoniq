@@ -162,7 +162,7 @@ class Slice(NullCell):
             from .dict.parse import parse_hashmap_aug
             return parse_hashmap_aug(self.load_ref().begin_parse(), key_length, x_deserializer, y_deserializer)
         else:
-            return [self]  # extra
+            return {}, [self]  # extra
 
     def preload_dict(self, key_length: int, key_deserializer: typing.Callable = None, value_deserializer: typing.Callable = None):
         from .dict.dict import HashMap

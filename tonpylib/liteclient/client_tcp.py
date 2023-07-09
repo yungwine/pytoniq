@@ -9,7 +9,7 @@ import typing
 from queue import Queue
 
 from ..boc import Slice, Cell
-from ..boc.exotic import check_proof
+from ..boc.exotic import check_proof, check_block_header_proof, check_shard_proof, check_account_proof
 from ..boc.address import Address
 
 # from .crypto import ed25519Public, ed25519Private, x25519Public, x25519Private
@@ -21,6 +21,7 @@ from ..tl.block import BlockId, BlockIdExt
 
 from ..tlb.vm_stack import VmStack
 from ..tlb.block import Block
+from ..tlb.account import Account, SimpleAccount
 
 
 class LiteClientError(BaseException):
@@ -270,28 +271,51 @@ class AdnlClientTcp:
         result = await self.liteserver_request('getBlock', block)
         return Block.deserialize(Slice.one_from_boc(result['data']))
 
+    async def raw_get_account_state(self, address: typing.Union[str, Address]) -> Account:
+        block = (await self.get_masterchain_info())['last']  # take from cache TODO
+
+        if isinstance(address, str):
+            address = Address(address)
+
+        account = address.to_tl_account_id()
+
+        data = {'id': block, 'account': account}
+
+        result = await self.liteserver_request('getAccountState', data)
+
+        blk = BlockIdExt.from_dict(block)
+        shrd_blk = BlockIdExt.from_dict(result['shardblk'])
+        account_state_root = Cell.one_from_boc(result['state'])
+
+        # check_block_header_proof(result['proof'], bytes.fromhex(result['shardblk']['root_hash']))
+
+        check_shard_proof(shard_proof=result['shard_proof'], blk=blk, shrd_blk=shrd_blk)
+
+        check_account_proof(proof=result['proof'], shrd_blk=shrd_blk, address=address, account_state_root=account_state_root)
+
+        return Account.deserialize(account_state_root.begin_parse())
+
+    async def get_account_state(self, address: typing.Union[str, Address]) -> dict:
+        return SimpleAccount.from_raw(await self.raw_get_account_state(address))
+
     async def run_get_method(self, address: typing.Union[Address, str], method: typing.Union[int, str], stack: list):
 
         mode = 7  # 111
 
         block = (await self.get_masterchain_info())['last']  # take from cache TODO
 
-        account = {}
-
         if isinstance(address, str):
             address = Address(address)
 
-        if isinstance(address, Address):
-            account['workchain'] = address.wc
-            account['id'] = address.hash_part.hex()
-        else:
-            raise LiteClientError('provided address in unknown form')
+        account = address.to_tl_account_id()
+
         if isinstance(method, str):
             method_id = (int.from_bytes(crc16(method.encode()), byteorder='big') & 0xffff) | 0x10000
         elif isinstance(method, int):
             method_id = method
         else:
             raise LiteClientError('provided method in unknown form')
+
         if isinstance(stack, list):
             stack = VmStack.serialize(stack)
         else:

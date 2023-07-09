@@ -83,6 +83,9 @@ class Address:
 
         return result
 
+    def to_tl_account_id(self) -> dict:
+        return {'workchain': self.wc, 'id': self.hash_part.hex()}
+
     @classmethod
     def from_tonsdk_address(cls, address):
         """

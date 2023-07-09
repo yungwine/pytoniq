@@ -29,10 +29,10 @@ class BlockIdExt:
                  root_hash: typing.Union[str, bytes], file_hash: typing.Union[str, bytes]):
         if shard is None:
             shard = -9223372036854775808
-        if isinstance(root_hash, bytes):
-            root_hash = root_hash.hex()
-        if isinstance(file_hash, bytes):
-            file_hash = file_hash.hex()
+        if isinstance(root_hash, str):
+            root_hash = bytes.fromhex(root_hash)
+        if isinstance(file_hash, str):
+            file_hash = bytes.fromhex(file_hash)
         self.workchain = workchain
         self.shard = shard
         self.seqno = seqno
@@ -46,3 +46,6 @@ class BlockIdExt:
     def from_dict(cls, block_id_ext: dict):
         return cls(workchain=block_id_ext.get('workchain'), shard=block_id_ext.get('shard'), seqno=block_id_ext.get('seqno'),
                    root_hash=block_id_ext.get('root_hash'), file_hash=block_id_ext.get('file_hash'))
+
+    def __repr__(self):
+        return f'<TL BlockIdExt {self.__dict__} >'

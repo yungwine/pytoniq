@@ -135,7 +135,6 @@ class Cell(NullCell):
         if self.type_ == CellTypes.pruned_branch:
             pruned_hash_index = self.level_mask.get_hash_index()
             if hash_index != pruned_hash_index:
-                # print(hash_index, pruned_hash_index, self._data_bytes[2 + (hash_index * 32): 2 + ((hash_index + 1) * 32)].hex().upper())
                 # here we read and return hash of the deleted subtree
                 return self._data_bytes[2 + (hash_index * 32): 2 + ((hash_index + 1) * 32)]
             hash_index = 0
@@ -261,13 +260,19 @@ class Cell(NullCell):
         return result
 
     @classmethod
+    def from_boc(cls, data: typing.Any) -> typing.List["Cell"]:
+        boc = Boc(data)
+        cells = boc.deserialize(cls)
+        return cells
+
+    @classmethod
     def one_from_boc(cls, data: typing.Any) -> "Cell":
         boc = Boc(data)
         cells = boc.deserialize(cls)
         if len(cells) > 1:
             raise CellError('expected one root cell')
         root_cell = cells[0]
-        return root_cell.to_cell()
+        return root_cell
 
         # def get_refs(cell: "NullCell"):
         #     refs = []

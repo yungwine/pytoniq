@@ -394,6 +394,8 @@ class ShardStateUnsplit(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
+        if cell_slice.is_special():
+            return None
         tag = cell_slice.load_bytes(4)
         if not tag == b'\x90#\xaf\xe2':
             raise BlockError(f'ShardStateUnsplit deserialization error unknown prefix tag: {tag}')
@@ -529,7 +531,10 @@ class McStateExtra(TlbScheme):
         tag = cell_slice.load_bytes(2)
         if tag != b'\xcc&':
             raise BlockError(f'McStateExtra deserialization error unknown prefix tag: {tag}')
-        shard_hashes = cell_slice.load_dict(32)
+        shard_hashes = cell_slice.load_dict(32, value_deserializer=lambda src: BinTree.deserialize(src.load_ref().begin_parse()))
+        for k in shard_hashes:
+            for i in range(len(shard_hashes[k].list)):
+                shard_hashes[k].list[i] = ShardDescr.deserialize(shard_hashes[k].list[i])
         config = ConfigParams.deserialize(cell_slice)
         ref = cell_slice.load_ref().begin_parse()
         flags = ref.load_uint(16)
@@ -808,3 +813,145 @@ class BlockExtra(TlbScheme):
         created_by = cell_slice.load_bytes(32)
         custom = McBlockExtra.deserialize(cell_slice.load_ref().begin_parse()) if cell_slice.load_bit() else None
         return cls(in_msg_descr, out_msg_descr, account_blocks, rand_seed, created_by, custom)
+
+
+class BinTree(TlbScheme):
+    """
+    bt_leaf$0 {X:Type} leaf:X = BinTree X;
+    bt_fork$1 {X:Type} left:^(BinTree X) right:^(BinTree X)
+    = BinTree X;
+    """
+    def __init__(self, list_: list):
+        self.list = list_
+
+    @classmethod
+    def serialize(cls, *args):
+        ...
+
+    @classmethod
+    def deserialize(cls, cell_slice: Slice):
+        if cell_slice.load_bit():
+            return cls(cls.deserialize(cell_slice.load_ref().begin_parse()).list + cls.deserialize(cell_slice.load_ref().begin_parse()).list)
+        else:
+            return cls([cell_slice])
+
+
+class ShardDescr(TlbScheme):
+    """
+    shard_descr#b seq_no:uint32 reg_mc_seqno:uint32
+    start_lt:uint64 end_lt:uint64
+    root_hash:bits256 file_hash:bits256
+    before_split:Bool before_merge:Bool
+    want_split:Bool want_merge:Bool
+    nx_cc_updated:Bool flags:(## 3) { flags = 0 }
+    next_catchain_seqno:uint32 next_validator_shard:uint64
+    min_ref_mc_seqno:uint32 gen_utime:uint32
+    split_merge_at:FutureSplitMerge
+    fees_collected:CurrencyCollection
+    funds_created:CurrencyCollection = ShardDescr;
+
+    shard_descr_new#a seq_no:uint32 reg_mc_seqno:uint32
+    start_lt:uint64 end_lt:uint64
+    root_hash:bits256 file_hash:bits256
+    before_split:Bool before_merge:Bool
+    want_split:Bool want_merge:Bool
+    nx_cc_updated:Bool flags:(## 3) { flags = 0 }
+    next_catchain_seqno:uint32 next_validator_shard:uint64
+    min_ref_mc_seqno:uint32 gen_utime:uint32
+    split_merge_at:FutureSplitMerge
+    ^[
+        fees_collected:CurrencyCollection
+        funds_created:CurrencyCollection
+    ] = ShardDescr;
+    """
+
+    def __init__(self, seq_no: int, reg_mc_seqno: int, start_lt: int, end_lt: int, root_hash: bytes, file_hash: bytes,
+                 before_split: bool, before_merge: bool, want_split: bool, want_merge: bool, nx_cc_updated: bool,
+                 flags: int, next_catchain_seqno: int, next_validator_shard: int, min_ref_mc_seqno: int,
+                 gen_utime: int, split_merge_at: "FutureSplitMerge", fees_collected: CurrencyCollection, funds_created: CurrencyCollection):
+        self.seq_no = seq_no
+        self.reg_mc_seqno = reg_mc_seqno
+        self.start_lt = start_lt
+        self.end_lt = end_lt
+        self.root_hash = root_hash
+        self.file_hash = file_hash
+        self.before_split = before_split
+        self.before_merge = before_merge
+        self.want_split = want_split
+        self.want_merge = want_merge
+        self.nx_cc_updated = nx_cc_updated
+        self.flags = flags
+        self.next_catchain_seqno = next_catchain_seqno
+        self.next_validator_shard = next_validator_shard
+        self.min_ref_mc_seqno = min_ref_mc_seqno
+        self.gen_utime = gen_utime
+        self.split_merge_at = split_merge_at
+        self.fees_collected = fees_collected
+        self.funds_created = funds_created
+
+    @classmethod
+    def serialize(cls, *args):
+        ...
+
+    @classmethod
+    def deserialize(cls, cell_slice: Slice):
+        tag = cell_slice.load_bits(4).to01()
+        if tag not in ('1011', '1010'):  # b and a
+            raise BlockError(f'ShardDescr deserialization error unknown prefix tag: {tag}')
+
+        seq_no = cell_slice.load_uint(32)
+        reg_mc_seqno = cell_slice.load_uint(32)
+        start_lt = cell_slice.load_uint(64)
+        end_lt = cell_slice.load_uint(64)
+        root_hash = cell_slice.load_bytes(32)
+        file_hash = cell_slice.load_bytes(32)
+        before_split = cell_slice.load_bool()
+        before_merge = cell_slice.load_bool()
+        want_split = cell_slice.load_bool()
+        want_merge = cell_slice.load_bool()
+        nx_cc_updated = cell_slice.load_bool()
+        flags = cell_slice.load_uint(3)
+        if flags != 0:
+            raise BlockError(f'ShardDescr deserialization error flags expected to be zero, got: {flags}')
+        next_catchain_seqno = cell_slice.load_uint(32)
+        next_validator_shard = cell_slice.load_uint(64)
+        min_ref_mc_seqno = cell_slice.load_uint(32)
+        gen_utime = cell_slice.load_uint(32)
+        split_merge_at = FutureSplitMerge.deserialize(cell_slice)
+
+        if tag == '1011':  # b
+            fees_collected = CurrencyCollection.deserialize(cell_slice)
+            funds_created = CurrencyCollection.deserialize(cell_slice)
+        else:  # a
+            ref = cell_slice.load_ref().begin_parse()
+            fees_collected = CurrencyCollection.deserialize(ref)
+            funds_created = CurrencyCollection.deserialize(ref)
+        return cls(seq_no, reg_mc_seqno, start_lt, end_lt, root_hash, file_hash,
+                   before_split, before_merge, want_split, want_merge, nx_cc_updated,
+                   flags, next_catchain_seqno, next_validator_shard, min_ref_mc_seqno,
+                   gen_utime, split_merge_at, fees_collected, funds_created)
+
+
+class FutureSplitMerge(TlbScheme):
+    """
+    fsm_none$0 = FutureSplitMerge;
+    fsm_split$10 split_utime:uint32 interval:uint32 = FutureSplitMerge;
+    fsm_merge$11 merge_utime:uint32 interval:uint32 = FutureSplitMerge;
+    """
+
+    def __init__(self, type_, **kwargs):
+        self.type_ = type_
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+    @classmethod
+    def serialize(cls, *args):
+        pass
+
+    @classmethod
+    def deserialize(cls, cell_slice: Slice) -> typing.Optional["FutureSplitMerge"]:
+        if not cell_slice.load_bit():  # 0
+            return None
+        if not cell_slice.load_bit():  # 10
+            return cls('fsm_split', split_utime=cell_slice.load_uint(32), interval=cell_slice.load_uint(32))
+        return cls('fsm_merge', merge_utime=cell_slice.load_uint(32), interval=cell_slice.load_uint(32))  # 11

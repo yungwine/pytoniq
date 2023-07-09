@@ -60,22 +60,22 @@ liteServer.debug.verbosity value:int = liteServer.debug.Verbosity;
 
 ---functions---
 
-liteServer.getMasterchainInfo = liteServer.MasterchainInfo;
-liteServer.getMasterchainInfoExt mode:# = liteServer.MasterchainInfoExt;
-liteServer.getTime = liteServer.CurrentTime;
-liteServer.getVersion = liteServer.Version;
-liteServer.getBlock id:tonNode.blockIdExt = liteServer.BlockData;
-liteServer.getState id:tonNode.blockIdExt = liteServer.BlockState;
-liteServer.getBlockHeader id:tonNode.blockIdExt mode:# = liteServer.BlockHeader;
+liteServer.getMasterchainInfo = liteServer.MasterchainInfo; // done
+liteServer.getMasterchainInfoExt mode:# = liteServer.MasterchainInfoExt; // done
+liteServer.getTime = liteServer.CurrentTime; // done
+liteServer.getVersion = liteServer.Version; // done
+liteServer.getBlock id:tonNode.blockIdExt = liteServer.BlockData;  // done
+liteServer.getState id:tonNode.blockIdExt = liteServer.BlockState;  // problem
+liteServer.getBlockHeader id:tonNode.blockIdExt mode:# = liteServer.BlockHeader; // done
 liteServer.sendMessage body:bytes = liteServer.SendMsgStatus;
 liteServer.getAccountState id:tonNode.blockIdExt account:liteServer.accountId = liteServer.AccountState;
 liteServer.getAccountStatePrunned id:tonNode.blockIdExt account:liteServer.accountId = liteServer.AccountState;
-liteServer.runSmcMethod mode:# id:tonNode.blockIdExt account:liteServer.accountId method_id:long params:bytes = liteServer.RunMethodResult;
+liteServer.runSmcMethod mode:# id:tonNode.blockIdExt account:liteServer.accountId method_id:long params:bytes = liteServer.RunMethodResult; // done
 liteServer.getShardInfo id:tonNode.blockIdExt workchain:int shard:long exact:Bool = liteServer.ShardInfo;
 liteServer.getAllShardsInfo id:tonNode.blockIdExt = liteServer.AllShardsInfo;
 liteServer.getOneTransaction id:tonNode.blockIdExt account:liteServer.accountId lt:long = liteServer.TransactionInfo;
 liteServer.getTransactions count:# account:liteServer.accountId lt:long hash:int256 = liteServer.TransactionList;
-liteServer.lookupBlock mode:# id:tonNode.blockId lt:mode.1?long utime:mode.2?int = liteServer.BlockHeader;
+liteServer.lookupBlock mode:# id:tonNode.blockId lt:mode.1?long utime:mode.2?int = liteServer.BlockHeader; // done
 liteServer.listBlockTransactions id:tonNode.blockIdExt mode:# count:# after:mode.7?liteServer.transactionId3 reverse_order:mode.6?true want_proof:mode.5?true = liteServer.BlockTransactions;
 liteServer.listBlockTransactionsExt id:tonNode.blockIdExt mode:# count:# after:mode.7?liteServer.transactionId3 reverse_order:mode.6?true want_proof:mode.5?true = liteServer.BlockTransactionsExt;
 liteServer.getBlockProof mode:# known_block:tonNode.blockIdExt target_block:mode.0?tonNode.blockIdExt = liteServer.PartialBlockProof;

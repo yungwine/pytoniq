@@ -6,6 +6,76 @@ from ..boc import Slice, Builder, Cell
 from ..boc.address import Address
 
 
+class SimpleAccount(TlbScheme):
+    """
+    // simple_balance$_ Grams = AccountBalance;
+
+    account_none$0 = Account;
+    account$1 addr:Address balance:Grams state:SimpleAccountState = Account;
+    """
+    """
+    this schema is needed for user-friendly and familiar account representation,
+    but not used anywhere outside of this library
+    """
+    def __init__(self, address: Address, balance: int, state: "SimpleAccountState"):
+        self.address = address
+        self.balance = balance
+        self.state = state
+
+    @classmethod
+    def serialize(cls, *args):
+        ...
+
+    @classmethod
+    def deserialize(cls, *args):
+        ...
+
+    @classmethod
+    def from_raw(cls, account: "Account"):
+        return cls(address=account.addr, balance=account.storage.balance.grams, state=SimpleAccountState.from_raw(account.storage.state))
+
+    def __repr__(self):
+        return f'<SimpleAccount {self.address}: state={self.state.type_}, balance={self.balance}>'
+
+
+class SimpleAccountState(TlbScheme):
+    """
+    uninitialized$00 = SimpleAccountState;
+    frozen$01 state_hash:bits256 = SimpleAccountState;
+    active$10 code:^Cell data:^Cell = SimpleAccountState;
+    """
+    """
+    this schema is needed for user-friendly and familiar account state representation,
+    but not used anywhere outside of this library
+    """
+
+    def __init__(self, type_: typing.Literal["uninitialized", "frozen", "active"],
+                 state_hash: typing.Optional[bytes] = None,
+                 code: typing.Optional[Cell] = None,
+                 data: typing.Optional[Cell] = None,
+                 ):
+        self.type_ = type_
+        self.state_hash = state_hash
+        self.code = code
+        self.data = data
+
+    @classmethod
+    def serialize(cls, *args):
+        ...
+
+    @classmethod
+    def deserialize(cls, *args):
+        ...
+
+    @classmethod
+    def from_raw(cls, account_state: "AccountState"):
+        if account_state.type_ == 'account_uninit':
+            return cls('uninitialized')
+        if account_state.type_ == 'account_frozen':
+            return cls('frozen', state_hash=account_state.state_hash)
+        return cls('active', code=account_state.state_init.code, data=account_state.state_init.data)
+
+
 class Account(TlbScheme):
     """
     account_none$0 = Account;
@@ -105,6 +175,8 @@ class AccountState(TlbScheme):
 
     def __init__(self, type_: str, **kwargs):
         self.type_ = type_
+        self.state_init: StateInit
+        self.state_hash: str
         for k, v in kwargs.items():
             setattr(self, k, v)
 
@@ -185,10 +257,11 @@ class ShardAccount(TlbScheme):
     account_descr$_ account:^Account last_trans_hash:bits256
     last_trans_lt:uint64 = ShardAccount;
     """
-    def __init__(self, account: Account, last_trans_hash: bytes, last_trans_lt: int):
+    def __init__(self, account: Account, last_trans_hash: bytes, last_trans_lt: int, cell: typing.Optional[Cell] = None):
         self.account = account
         self.last_trans_hash = last_trans_hash
         self.last_trans_lt = last_trans_lt
+        self.cell = cell  # to check merkle proof of account states
 
     @classmethod
     def serialize(cls, *args):
@@ -196,6 +269,7 @@ class ShardAccount(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
+        cell_copy = cell_slice.copy()  # TODO optimize
         return cls(account=Account.deserialize(cell_slice.load_ref().begin_parse()),
                    last_trans_hash=cell_slice.load_bytes(32),
-                   last_trans_lt=cell_slice.load_uint(64))
+                   last_trans_lt=cell_slice.load_uint(64), cell=cell_copy.to_cell())
