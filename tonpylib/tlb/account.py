@@ -140,6 +140,25 @@ class StorageUsed(TlbScheme):
         return cls(cell_slice.load_var_uint(l), cell_slice.load_var_uint(l), cell_slice.load_var_uint(l),)
 
 
+class StorageUsedShort(TlbScheme):
+    """
+    storage_used_short$_ cells:(VarUInteger 7) bits:(VarUInteger 7) = StorageUsedShort;
+    """
+
+    def __init__(self, cells, bits):
+        self.cells = cells
+        self.bits = bits
+
+    @classmethod
+    def serialize(cls, *args):
+        pass
+
+    @classmethod
+    def deserialize(cls, cell_slice: Slice):
+        l = 3  # int(7).bit_length()
+        return cls(cell_slice.load_var_uint(l), cell_slice.load_var_uint(l))
+
+
 class AccountStorage(TlbScheme):
     """
     account_storage$_ last_trans_lt:uint64
@@ -273,3 +292,34 @@ class ShardAccount(TlbScheme):
         return cls(account=Account.deserialize(cell_slice.load_ref().begin_parse()),
                    last_trans_hash=cell_slice.load_bytes(32),
                    last_trans_lt=cell_slice.load_uint(64), cell=cell_copy.to_cell())
+
+
+class AccountStatus(TlbScheme):
+    """
+    acc_state_uninit$00 = AccountStatus;
+    acc_state_frozen$01 = AccountStatus;
+    acc_state_active$10 = AccountStatus;
+    acc_state_nonexist$11 = AccountStatus;
+    """
+    def __init__(self, type_: typing.Literal["uninitialized", "frozen", "active", "nonexist"]):
+        self.type_ = type_
+
+    @classmethod
+    def serialize(cls, *args):
+        pass
+
+    @classmethod
+    def deserialize(cls, cell_slice: Slice):
+        tag = cell_slice.load_bit()
+        if tag:
+            tag2 = cell_slice.load_bit()
+            if tag2:  # 11
+                return cls(type_='nonexist')
+            else:  # 10
+                return cls(type_='active')
+        else:
+            tag2 = cell_slice.load_bit()
+            if tag2:  # 01
+                return cls(type_='frozen')
+            else:  # 00
+                return cls(type_='uninitialized')

@@ -2,7 +2,7 @@ import typing
 
 from .tlb import TlbScheme, TlbError
 from .account import ShardAccount
-from .utils import MerkleUpdate
+from .utils import MerkleUpdate, deserialize_shard_hashes
 from ..boc import Slice, Cell
 
 
@@ -307,7 +307,7 @@ class ExtraCurrencyCollection(TlbScheme):
     @classmethod
     def deserialize(cls, cell_slice: Slice):
         def value_deserializer(src):
-            src.load_var_uint(5)  # TODO maybe flow will change
+            src.load_var_uint(5)
         dict = cell_slice.load_dict(32, value_deserializer=value_deserializer)
         return cls(dict)
 
@@ -531,10 +531,7 @@ class McStateExtra(TlbScheme):
         tag = cell_slice.load_bytes(2)
         if tag != b'\xcc&':
             raise BlockError(f'McStateExtra deserialization error unknown prefix tag: {tag}')
-        shard_hashes = cell_slice.load_dict(32, value_deserializer=lambda src: BinTree.deserialize(src.load_ref().begin_parse()))
-        for k in shard_hashes:
-            for i in range(len(shard_hashes[k].list)):
-                shard_hashes[k].list[i] = ShardDescr.deserialize(shard_hashes[k].list[i])
+        shard_hashes = deserialize_shard_hashes(cell_slice)
         config = ConfigParams.deserialize(cell_slice)
         ref = cell_slice.load_ref().begin_parse()
         flags = ref.load_uint(16)
