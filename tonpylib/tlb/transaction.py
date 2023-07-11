@@ -63,6 +63,8 @@ class Transaction(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
+        if cell_slice.is_special():
+            return cell_slice.to_cell()
         tag = cell_slice.load_bits(4).to01()
         if tag != '0111':
             raise TransactionError(f'Transaction deserialization error unknown prefix tag: {tag}')
@@ -748,8 +750,8 @@ class SplitMergeInfo(TlbScheme):
                  sibling_addr: bytes):
         self.cur_shard_pfx_len = cur_shard_pfx_len
         self.acc_split_depth = acc_split_depth
-        self.this_addr = this_addr
-        self.sibling_addr = sibling_addr
+        self.this_addr = this_addr.hex()
+        self.sibling_addr = sibling_addr.hex()
 
     @classmethod
     def serialize(cls, *args):
@@ -912,3 +914,279 @@ class TransactionMergeInstall(TlbScheme):
             aborted=cell_slice.load_bool(),
             destroyed=cell_slice.load_bool()
         )
+
+
+class IntermediateAddress(TlbScheme):  # TODO: maybe move to account.py
+    """
+    interm_addr_regular$0 use_dest_bits:(#<= 96)
+    = IntermediateAddress;
+
+    interm_addr_simple$10 workchain_id:int8 addr_pfx:uint64
+    = IntermediateAddress;
+
+    interm_addr_ext$11 workchain_id:int32 addr_pfx:uint64
+    = IntermediateAddress;
+    """
+
+    def __init__(self,
+                 type_: str,
+                 use_dest_bits: typing.Optional[int] = None,
+                 workchain_id: typing.Optional[int] = None,
+                 addr_pfx: typing.Optional[int] = None
+                 ):
+        self.type_ = type_
+        self.use_dest_bits = use_dest_bits
+        self.workchain_id = workchain_id
+        self.addr_pfx = addr_pfx
+
+    @classmethod
+    def serialize(cls, *args):
+        ...
+
+    @classmethod
+    def deserialize(cls, cell_slice: Slice):
+        tag = cell_slice.load_bit()
+        if not tag:  # 0
+            return cls('interm_addr_regular', use_dest_bits=cell_slice.load_uint(7))
+        tag = cell_slice.load_bit()
+        if tag:  # 10
+            return cls('interm_addr_simple', workchain_id=cell_slice.load_int(8), addr_pfx=cell_slice.load_uint(64))
+        # 11
+        return cls('interm_addr_ext', workchain_id=cell_slice.load_int(32), addr_pfx=cell_slice.load_uint(64))
+
+
+class MsgEnvelope(TlbScheme):
+    """
+    msg_envelope#4 cur_addr:IntermediateAddress
+    next_addr:IntermediateAddress fwd_fee_remaining:Grams
+    msg:^(Message Any) = MsgEnvelope;
+    """
+
+    def __init__(self,
+                 cur_addr: IntermediateAddress,
+                 next_addr: IntermediateAddress,
+                 fwd_fee_remaining: int,
+                 msg: MessageAny):
+        self.cur_addr = cur_addr
+        self.next_addr = next_addr
+        self.fwd_fee_remaining = fwd_fee_remaining
+        self.msg = msg
+
+    @classmethod
+    def serialize(cls, *args):
+        ...
+
+    @classmethod
+    def deserialize(cls, cell_slice: Slice):
+        tag = cell_slice.load_uint(4)
+        if tag != 4:
+            raise TransactionError(f'MsgEnvelope deserialization error tag: {tag}')
+        return cls(
+            cur_addr=IntermediateAddress.deserialize(cell_slice),
+            next_addr=IntermediateAddress.deserialize(cell_slice),
+            fwd_fee_remaining=cell_slice.load_coins(),
+            msg=MessageAny.deserialize(cell_slice.load_ref().begin_parse())
+        )
+
+
+class InMsg(TlbScheme):
+    """
+    msg_import_ext$000 msg:^(Message Any) transaction:^Transaction = InMsg;
+
+    msg_import_ihr$010 msg:^(Message Any) transaction:^Transaction
+        ihr_fee:Grams proof_created:^Cell = InMsg;
+
+    msg_import_imm$011 in_msg:^MsgEnvelope
+        transaction:^Transaction fwd_fee:Grams = InMsg;
+
+    msg_import_fin$100 in_msg:^MsgEnvelope
+        transaction:^Transaction fwd_fee:Grams = InMsg;
+
+    msg_import_tr$101  in_msg:^MsgEnvelope out_msg:^MsgEnvelope
+        transit_fee:Grams = InMsg;
+
+    msg_discard_fin$110 in_msg:^MsgEnvelope transaction_id:uint64
+        fwd_fee:Grams = InMsg;
+
+    msg_discard_tr$111 in_msg:^MsgEnvelope transaction_id:uint64
+        fwd_fee:Grams proof_delivered:^Cell = InMsg;
+    """
+    def __init__(self,
+                 type_: str,
+                 msg: typing.Optional[MessageAny] = None,
+                 in_msg: typing.Optional[MsgEnvelope] = None,
+                 transaction: typing.Optional[Transaction] = None,
+                 **kwargs
+                 ):
+        self.type_ = type_
+        self.msg = msg
+        self.in_msg = in_msg
+        self.transaction = transaction
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+    @classmethod
+    def serialize(cls, *args):
+        pass
+
+    @classmethod
+    def deserialize(cls, cell_slice: Slice):
+        tag = cell_slice.load_bits(3).to01()
+        if tag == '000':
+            return cls('msg_import_ext',
+                       msg=MessageAny.deserialize(cell_slice.load_ref().begin_parse()),
+                       transaction=Transaction.deserialize(cell_slice.load_ref().begin_parse())
+                       )
+        if tag == '010':
+            return cls('msg_import_ihr',
+                       msg=MessageAny.deserialize(cell_slice.load_ref().begin_parse()),
+                       transaction=Transaction.deserialize(cell_slice.load_ref().begin_parse()),
+                       ihr_fee=cell_slice.load_coins(),
+                       proof_created=cell_slice.load_ref()
+                       )
+        if tag == '011':
+            return cls('msg_import_imm',
+                       in_msg=MsgEnvelope.deserialize(cell_slice.load_ref().begin_parse()),
+                       transaction=Transaction.deserialize(cell_slice.load_ref().begin_parse()),
+                       fwd_fee=cell_slice.load_coins(),
+                       )
+        if tag == '100':
+            return cls('msg_import_fin',
+                       in_msg=MsgEnvelope.deserialize(cell_slice.load_ref().begin_parse()),
+                       transaction=Transaction.deserialize(cell_slice.load_ref().begin_parse()),
+                       fwd_fee=cell_slice.load_coins(),
+                       )
+        if tag == '101':
+            return cls('msg_import_tr',
+                       in_msg=MsgEnvelope.deserialize(cell_slice.load_ref().begin_parse()),
+                       out_msg=MsgEnvelope.deserialize(cell_slice.load_ref().begin_parse()),
+                       transit_fee=cell_slice.load_coins(),
+                       )
+        if tag == '110':
+            return cls('msg_discard_fin',
+                       in_msg=MsgEnvelope.deserialize(cell_slice.load_ref().begin_parse()),
+                       transaction_id=cell_slice.load_uint(64),
+                       transit_fee=cell_slice.load_coins(),
+                       )
+        if tag == '111':
+            return cls('msg_discard_tr',
+                       in_msg=MsgEnvelope.deserialize(cell_slice.load_ref().begin_parse()),
+                       transaction_id=cell_slice.load_uint(64),
+                       fwd_fee=cell_slice.load_coins(),
+                       proof_delivered=cell_slice.load_ref()
+                       )
+        raise TransactionError(f'InMsg deserialization error: unknown prefix tag {tag}')
+
+
+class OutMsg(TlbScheme):
+    """
+    msg_export_ext$000 msg:^(Message Any)
+    transaction:^Transaction = OutMsg;
+
+    msg_export_imm$010 out_msg:^MsgEnvelope
+    transaction:^Transaction reimport:^InMsg = OutMsg;
+
+    msg_export_new$001 out_msg:^MsgEnvelope
+    transaction:^Transaction = OutMsg;
+
+    msg_export_tr$011  out_msg:^MsgEnvelope
+    imported:^InMsg = OutMsg;
+
+    msg_export_deq$1100 out_msg:^MsgEnvelope
+    import_block_lt:uint63 = OutMsg;
+
+    msg_export_deq_short$1101 msg_env_hash:bits256
+    next_workchain:int32 next_addr_pfx:uint64
+    import_block_lt:uint64 = OutMsg;
+
+    msg_export_tr_req$111 out_msg:^MsgEnvelope
+    imported:^InMsg = OutMsg;
+
+    msg_export_deq_imm$100 out_msg:^MsgEnvelope
+    reimport:^InMsg = OutMsg;
+    """
+    def __init__(self,
+                 type_: str,
+                 msg: typing.Optional[MessageAny] = None,
+                 out_msg: typing.Optional[MsgEnvelope] = None,
+                 transaction: typing.Optional[Transaction] = None,
+                 **kwargs
+                 ):
+        self.type_ = type_
+        self.msg = msg
+        self.out_msg = out_msg
+        self.transaction = transaction
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+    @classmethod
+    def serialize(cls, *args):
+        pass
+
+    @classmethod
+    def deserialize(cls, cell_slice: Slice):
+        tag = cell_slice.load_bits(3).to01()
+        if tag == '000':
+            return cls('msg_export_ext',
+                       msg=MessageAny.deserialize(cell_slice.load_ref().begin_parse()),
+                       transaction=Transaction.deserialize(cell_slice.load_ref().begin_parse())
+                       )
+        if tag == '010':
+            return cls('msg_export_imm',
+                       out_msg=MsgEnvelope.deserialize(cell_slice.load_ref().begin_parse()),
+                       transaction=Transaction.deserialize(cell_slice.load_ref().begin_parse()),
+                       reimport=InMsg.deserialize(cell_slice.load_ref().begin_parse()),
+                       )
+        if tag == '001':
+            return cls('msg_export_new',
+                       out_msg=MsgEnvelope.deserialize(cell_slice.load_ref().begin_parse()),
+                       transaction=Transaction.deserialize(cell_slice.load_ref().begin_parse()),
+                       )
+        if tag == '011':
+            return cls('msg_export_tr',
+                       out_msg=MsgEnvelope.deserialize(cell_slice.load_ref().begin_parse()),
+                       imported=InMsg.deserialize(cell_slice.load_ref().begin_parse()),
+                       )
+        if tag == '100':
+            return cls('msg_export_deq_imm',
+                       out_msg=MsgEnvelope.deserialize(cell_slice.load_ref().begin_parse()),
+                       reimport=InMsg.deserialize(cell_slice.load_ref().begin_parse()),
+                       )
+        if tag == '111':
+            return cls('msg_export_tr_req',
+                       out_msg=MsgEnvelope.deserialize(cell_slice.load_ref().begin_parse()),
+                       imported=InMsg.deserialize(cell_slice.load_ref().begin_parse()),
+                       )
+        tag += str(cell_slice.load_bit())
+        if tag == '1100':
+            return cls('msg_export_deq',
+                       out_msg=MsgEnvelope.deserialize(cell_slice.load_ref().begin_parse()),
+                       import_block_lt=cell_slice.load_uint(63)
+                       )
+        if tag == '1101':
+            return cls('msg_export_deq',
+                       msg_env_hash=cell_slice.load_bytes(32),
+                       next_workchain=cell_slice.load_int(32),
+                       next_addr_pfx=cell_slice.load_uint(64),
+                       import_block_lt=cell_slice.load_uint(64)
+                       )
+        raise TransactionError(f'OutMsg deserialization error: unknown prefix tag {tag}')
+
+
+class ImportFees(TlbScheme):
+    """
+    import_fees$_ fees_collected:Grams
+    value_imported:CurrencyCollection = ImportFees;
+    """
+
+    def __init__(self, fees_collected: int, value_imported: CurrencyCollection):
+        self.fees_collected = fees_collected
+        self.value_imported = value_imported
+
+    @classmethod
+    def serialize(cls, *args):
+        ...
+
+    @classmethod
+    def deserialize(cls, cell_slice: Slice):
+        return cls(fees_collected=cell_slice.load_coins(), value_imported=CurrencyCollection.deserialize(cell_slice))

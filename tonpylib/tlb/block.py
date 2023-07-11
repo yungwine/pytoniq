@@ -1,7 +1,7 @@
 import typing
 
 from .tlb import TlbScheme, TlbError
-from .account import ShardAccount
+from .account import ShardAccount, AccountBlock
 from .utils import MerkleUpdate, deserialize_shard_hashes
 from ..boc import Slice, Cell
 
@@ -307,7 +307,7 @@ class ExtraCurrencyCollection(TlbScheme):
     @classmethod
     def deserialize(cls, cell_slice: Slice):
         def value_deserializer(src):
-            src.load_var_uint(5)
+            return src.load_var_uint(5)
         dict = cell_slice.load_dict(32, value_deserializer=value_deserializer)
         return cls(dict)
 
@@ -586,6 +586,8 @@ class McBlockExtra(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
+        if cell_slice.is_special():
+            return None
         tag = cell_slice.load_bytes(2)
         if tag != b'\xcc\xa5':
             raise BlockError(f'McBlockExtra deserialization error unknown prefix tag: {tag}')
@@ -703,7 +705,8 @@ class BlockCreateStats(TlbScheme):
     block_create_stats_ext#34 counters:(HashmapAugE 256 CreatorStats uint32) = BlockCreateStats;
     """
 
-    def __init__(self, counters: dict):
+    def __init__(self, type_: str, counters: dict):
+        self.type_ = type_
         self.counters = counters
 
     @classmethod
@@ -715,13 +718,13 @@ class BlockCreateStats(TlbScheme):
         tag = cell_slice.load_bytes(1)
         if tag[:1] == b'\x17':
             type_ = 'block_create_stats'
-            return cls(cell_slice.load_dict(256, value_deserializer=CreatorStats.deserialize))
+            return cls(type_, cell_slice.load_dict(256, value_deserializer=CreatorStats.deserialize))
         if tag[:1] == b'\x34':
             type_ = 'block_create_stats_ext'
 
             def y_deserializer(src):
-                src.load_uint(32)
-            return cls(cell_slice.load_hashmap_aug_e(256, x_deserializer=CreatorStats, y_deserializer=y_deserializer))
+                return src.load_uint(32)
+            return cls(type_, cell_slice.load_hashmap_aug_e(256, x_deserializer=CreatorStats.deserialize, y_deserializer=y_deserializer))
         else:
             raise BlockError(f'BlockCreateStats deserialization error tag: {tag}')
 
@@ -742,7 +745,7 @@ class CreatorStats(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
-        tag = cell_slice.load_uint(4)  # TODO check if works correct
+        tag = cell_slice.load_uint(4)
         if tag != 4:
             raise BlockError(f'CreatorStats deserialization error tag: {tag}')
         return cls(Counters.deserialize(cell_slice), Counters.deserialize(cell_slice))
@@ -779,9 +782,9 @@ class BlockExtra(TlbScheme):
     """
 
     def __init__(self,
-                 in_msg_descr: Cell,
-                 out_msg_descr: Cell,
-                 account_blocks: Cell,
+                 in_msg_descr: typing.Tuple[dict, list],
+                 out_msg_descr: typing.Tuple[dict, list],
+                 account_blocks: typing.Tuple[dict, list],
                  rand_seed: bytes,
                  created_by: bytes,
                  custom: typing.Optional[McBlockExtra]):
@@ -798,14 +801,15 @@ class BlockExtra(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
+        from .transaction import InMsg, OutMsg, ImportFees
         if cell_slice.is_special():
             return None
         tag = cell_slice.load_bytes(4)
         if tag != b'J3\xf6\xfd':
             raise BlockError(f'BlockExtra deserialization error tag: {tag}')
-        in_msg_descr = cell_slice.load_ref()  # TODO
-        out_msg_descr = cell_slice.load_ref()
-        account_blocks = cell_slice.load_ref()
+        in_msg_descr = cell_slice.load_ref().begin_parse().load_hashmap_aug_e(256, x_deserializer=InMsg.deserialize, y_deserializer=ImportFees.deserialize)
+        out_msg_descr = cell_slice.load_ref().begin_parse().load_hashmap_aug_e(256, x_deserializer=OutMsg.deserialize, y_deserializer=CurrencyCollection.deserialize)
+        account_blocks = cell_slice.load_ref().begin_parse().load_hashmap_aug_e(256, x_deserializer=AccountBlock.deserialize, y_deserializer=CurrencyCollection.deserialize)
         rand_seed = cell_slice.load_bytes(32)
         created_by = cell_slice.load_bytes(32)
         custom = McBlockExtra.deserialize(cell_slice.load_ref().begin_parse()) if cell_slice.load_bit() else None

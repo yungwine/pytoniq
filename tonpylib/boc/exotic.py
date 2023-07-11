@@ -122,7 +122,7 @@ def check_shard_proof(shard_proof: bytes, blk: BlockIdExt, shrd_blk: BlockIdExt)
     return
 
 
-def check_account_proof(proof: bytes, shrd_blk: BlockIdExt, address: "Address", account_state_root: "Cell"):
+def check_account_proof(proof: bytes, shrd_blk: BlockIdExt, address: "Address", account_state_root: "Cell", return_account_descr: bool = False):
     from .cell import Cell
     from ..tlb.block import ShardStateUnsplit
 
@@ -139,9 +139,14 @@ def check_account_proof(proof: bytes, shrd_blk: BlockIdExt, address: "Address", 
 
     shard = ShardStateUnsplit.deserialize(state_cell[0].begin_parse())
 
-    account_state_root_proved = shard.accounts[0][int.from_bytes(address.hash_part, 'big')].cell
+    shard_account = shard.accounts[0][int.from_bytes(address.hash_part, 'big')]
+
+    account_state_root_proved = shard_account.cell
 
     if account_state_root_proved[0].get_hash(0) != account_state_root.get_hash(0):
         raise ProofError('account state proof invalid')
+
+    if return_account_descr:
+        return shard_account
 
     return

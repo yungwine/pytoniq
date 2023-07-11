@@ -117,7 +117,7 @@ class Slice(NullCell):
     def load_coins(self) -> typing.Optional[int]:
         length = self.load_uint(4)
         if not length:
-            return None
+            return 0
         return self.load_uint(length * 8)
 
     def preload_string(self, byte_length: int = 0):
@@ -152,26 +152,36 @@ class Slice(NullCell):
         else:
             return None
 
-    def load_hashmap(self, key_length: int, key_deserializer: typing.Callable = None, value_deserializer: typing.Callable = None):
+    def load_hashmap(self, key_length: int, key_deserializer: typing.Callable = None,
+                     value_deserializer: typing.Callable = None):
         from .dict.dict import HashMap
         return HashMap.parse(self, key_length, key_deserializer, value_deserializer)
 
+    def load_hashmap_aug(self, key_length: int, x_deserializer: typing.Callable = None,
+                         y_deserializer: typing.Callable = None):
+        from .dict.parse import parse_hashmap_aug
+        return parse_hashmap_aug(self, key_length, x_deserializer, y_deserializer)
+
     def load_hashmap_aug_e(self, key_length: int, x_deserializer: typing.Callable = None,
-                     y_deserializer: typing.Callable = None):
+                           y_deserializer: typing.Callable = None):
+        if self.is_special():
+            return self.to_cell()
         if self.load_bit():
             from .dict.parse import parse_hashmap_aug
             return parse_hashmap_aug(self.load_ref().begin_parse(), key_length, x_deserializer, y_deserializer)
         else:
             return {}, [self]  # extra
 
-    def preload_dict(self, key_length: int, key_deserializer: typing.Callable = None, value_deserializer: typing.Callable = None):
+    def preload_dict(self, key_length: int, key_deserializer: typing.Callable = None,
+                     value_deserializer: typing.Callable = None):
         from .dict.dict import HashMap
         if self.preload_bit():
             return HashMap.parse(self.preload_ref().begin_parse(), key_length, key_deserializer, value_deserializer)
         else:
             return None
 
-    def load_dict(self, key_length: int, key_deserializer: typing.Callable = None, value_deserializer: typing.Callable = None):
+    def load_dict(self, key_length: int, key_deserializer: typing.Callable = None,
+                  value_deserializer: typing.Callable = None):
         from .dict.dict import HashMap
         if self.load_bit():
             return HashMap.parse(self.load_ref().begin_parse(), key_length, key_deserializer, value_deserializer)

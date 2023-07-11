@@ -26,8 +26,8 @@ class MerkleUpdate(TlbScheme):
 
         cell_slice = cell.begin_parse()
         tag = cell_slice.load_bytes(1)[:1]
-        if tag != b'\x02':
-            raise TlbError(f'MerkleUpdate deserialization error: unexpected tag {tag}')
+        # if tag != b'\x02':
+        #     raise TlbError(f'MerkleUpdate deserialization error: unexpected tag {tag}')
         old_hash = cell_slice.load_bytes(32)
         new_hash = cell_slice.load_bytes(32)
         old = deserializer(cell_slice.load_ref().begin_parse())

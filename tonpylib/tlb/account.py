@@ -1,9 +1,13 @@
 import typing
 
 from .tlb import TlbScheme, TlbError
-from .utils import MerkleUpdate
+from .utils import MerkleUpdate, HashUpdate
 from ..boc import Slice, Builder, Cell
 from ..boc.address import Address
+
+
+class AccountError(TlbError):
+    pass
 
 
 class SimpleAccount(TlbScheme):
@@ -195,7 +199,7 @@ class AccountState(TlbScheme):
     def __init__(self, type_: str, **kwargs):
         self.type_ = type_
         self.state_init: StateInit
-        self.state_hash: str
+        self.state_hash: bytes
         for k, v in kwargs.items():
             setattr(self, k, v)
 
@@ -323,3 +327,37 @@ class AccountStatus(TlbScheme):
                 return cls(type_='frozen')
             else:  # 00
                 return cls(type_='uninitialized')
+
+
+class AccountBlock(TlbScheme):
+    """
+    acc_trans#5 account_addr:bits256
+    transactions:(HashmapAug 64 ^Transaction CurrencyCollection)
+    state_update:^(HASH_UPDATE Account)
+    = AccountBlock;
+    """
+    def __init__(self,
+                 account_addr: str,
+                 transactions: typing.Tuple[dict, list],
+                 state_update: HashUpdate):
+        self.account_addr = account_addr
+        self.transactions = transactions
+        self.state_update = state_update
+
+    @classmethod
+    def serialize(cls, *args):
+        pass
+
+    @classmethod
+    def deserialize(cls, cell_slice: Slice):
+        from .transaction import Transaction, CurrencyCollection
+        tag = cell_slice.load_uint(4)
+        if tag != 5:
+            raise AccountError(f'AccountBlock deserialization error: unknown prefix tag {tag}')
+        # print(cell_slice.load_bytes(32).hex())
+        # print(cell_slice.load_hashmap_aug(64, x_deserializer=lambda src: 1, y_deserializer=CurrencyCollection.deserialize))
+        return cls(
+            account_addr=cell_slice.load_bytes(32).hex(),
+            transactions=cell_slice.load_hashmap_aug(64, x_deserializer=lambda src: Transaction.deserialize(src.load_ref().begin_parse()), y_deserializer=CurrencyCollection.deserialize),
+            state_update=HashUpdate.deserialize(cell_slice.load_ref().begin_parse())
+        )

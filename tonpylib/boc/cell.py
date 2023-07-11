@@ -274,17 +274,10 @@ class Cell(NullCell):
         root_cell = cells[0]
         return root_cell
 
-        # def get_refs(cell: "NullCell"):
-        #     refs = []
-        #     for ref in cell.refs:
-        #         refs.append(cls(ref.bits, get_refs(ref), ref.type_))
-        #
-        #     return refs
-        # return cls(root_cell.bits, get_refs(root_cell), root_cell.type_)
-
     def begin_parse(self):
         from .slice import Slice
-        return Slice(self.bits.copy(), copy.deepcopy(self.refs), self.type_)
+        # TODO do we need deepcopy for refs?
+        return Slice(self.bits, self.refs.copy(), self.type_)
 
     def copy(self):
         return Cell(self.bits.copy(), copy.deepcopy(self.refs), self.type_)
