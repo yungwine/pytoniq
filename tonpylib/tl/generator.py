@@ -54,6 +54,7 @@ class TlSchema:
 class TlSchemas:
 
     base_types = {  # bytes len
+        'Bool': 4,
         '#': 4,
         'int': 4,
         'long': 8,
@@ -112,11 +113,16 @@ class TlSchemas:
         if type_ in self.base_types:
             byte_len = self.base_types.get(type_)
             if byte_len:
-                if isinstance(value, bytes):
+                if isinstance(value, bool):
+                    if value:
+                        result += b'\xb5ur\x99'  # booltrue
+                    else:
+                        result += b'7\x97y\xbc'  # boolfalse
+                elif isinstance(value, bytes):
                     result += value[:byte_len][::-1] + b'\x00' * max(0, byte_len - len(value))
-                if isinstance(value, int):
+                elif isinstance(value, int):
                     result += value.to_bytes(length=byte_len, byteorder='little', signed=True)
-                if isinstance(value, str):
+                elif isinstance(value, str):
                     result += bytes.fromhex(value)
             else:
                 if type_ == 'bytes':
@@ -227,9 +233,24 @@ class TlSchemas:
                             result[field] = result[field].decode()
             else:
                 # stucks when errors # TODO
-                sch = self.get_by_name(type_)
-                result[field], j = self.deserialize(data[i:], False, sch.args)
-                i += j
+
+                if type_.startswith('('):
+                    subtype = type_.split()[1][:-1]
+                    sch = self.get_by_name(subtype)
+                    result[field], j = self.deserialize(data[i:], False, sch.args)
+                    print(subtype)
+                    if 'vector' in type_:
+                        length = int.from_bytes(data[i:i + 4], 'little', signed=False)
+                        i += 4
+                        result[field] = []
+                        for _ in range(length):
+                            deser, j = self.deserialize(data[i:], False, sch.args)
+                            result[field].append(deser)
+                            i += j
+                else:
+                    sch = self.get_by_name(type_)
+                    result[field], j = self.deserialize(data[i:], False, sch.args)
+                    i += j
         return result, i
 
     def __repr__(self):

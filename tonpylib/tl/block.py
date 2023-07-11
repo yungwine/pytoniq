@@ -40,7 +40,7 @@ class BlockIdExt:
         self.file_hash = file_hash
 
     def to_dict(self):
-        return {'workchain': self.workchain, 'shard': self.shard, 'seqno': self.seqno, 'root_hash': self.root_hash, 'file_hash': self.file_hash}
+        return {'workchain': self.workchain, 'shard': self.shard, 'seqno': self.seqno, 'root_hash': self.root_hash.hex(), 'file_hash': self.file_hash.hex()}
 
     @classmethod
     def from_dict(cls, block_id_ext: dict):
