@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
 
-from ..boc.slice import Slice
-
 
 class TlbError(BaseException):
     pass

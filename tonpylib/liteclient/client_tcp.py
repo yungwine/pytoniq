@@ -457,9 +457,11 @@ class AdnlClientTcp:
 
         return Transaction.deserialize(transaction_root.begin_parse())
 
-    async def raw_get_transactions(self, address: typing.Union[Address, str], count: int, from_lt: int = None, from_hash: typing.Optional[bytes] = None) -> typing.Optional[Transaction]:
+    async def raw_get_transactions(self, address: typing.Union[Address, str], count: int, from_lt: int = None, from_hash: typing.Optional[bytes] = None) -> typing.Tuple[typing.List[Transaction], typing.List[BlockIdExt]]:
         if isinstance(address, str):
             address = Address(address)
+
+        assert count <= 16, 'maximum transactions in .raw_get_transactions() is 16!'
 
         if not from_lt or not from_hash:
             state, shard_account = await self.raw_get_account_state(address)
@@ -471,4 +473,38 @@ class AdnlClientTcp:
 
         transactions_cells = Cell.from_boc(result['transactions'])
 
-        print(result)
+        prev_tr_hash = from_hash
+
+        tr_result = []
+        block_ids = []
+        i = 0
+        for tr in transactions_cells:
+            block_ids.append(BlockIdExt.from_dict(result['ids'][i]))
+            current_hash = tr.get_hash(0)
+            if current_hash != prev_tr_hash:
+                raise LiteClientError(f'Transaction hashes mismatch. Expected {prev_tr_hash}, got {current_hash}')
+            transaction = Transaction.deserialize(tr.begin_parse())
+            prev_tr_hash = transaction.prev_trans_hash
+            tr_result.append(transaction)
+            i += 1
+
+        # assert len(tr_result) == count, f'expected {count} transactions, got {len(tr_result)}'
+
+        return tr_result, block_ids
+
+    async def get_transactions(self, address: typing.Union[Address, str], count: int, from_lt: int = None, from_hash: typing.Optional[bytes] = None) -> typing.List[Transaction]:
+        result: typing.List[Transaction] = []
+
+        for i in range(0, count, 16):
+            amount = min(16, count - i)
+            print(i, count, amount)
+
+            tr_result, block_ids = await self.raw_get_transactions(address, amount, from_lt, from_hash)
+
+            result += tr_result
+
+            from_lt, from_hash = result[-1].prev_trans_lt, result[-1].prev_trans_hash
+
+        # assert len(result) == count, f'expected {count} transactions, got {len(result)}'
+
+        return result

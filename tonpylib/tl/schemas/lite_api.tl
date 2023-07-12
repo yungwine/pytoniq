@@ -74,7 +74,7 @@ liteServer.runSmcMethod mode:# id:tonNode.blockIdExt account:liteServer.accountI
 liteServer.getShardInfo id:tonNode.blockIdExt workchain:int shard:long exact:Bool = liteServer.ShardInfo; // done
 liteServer.getAllShardsInfo id:tonNode.blockIdExt = liteServer.AllShardsInfo; // done
 liteServer.getOneTransaction id:tonNode.blockIdExt account:liteServer.accountId lt:long = liteServer.TransactionInfo; // done
-liteServer.getTransactions count:# account:liteServer.accountId lt:long hash:int256 = liteServer.TransactionList;
+liteServer.getTransactions count:# account:liteServer.accountId lt:long hash:int256 = liteServer.TransactionList; // done
 liteServer.lookupBlock mode:# id:tonNode.blockId lt:mode.1?long utime:mode.2?int = liteServer.BlockHeader; // done
 liteServer.listBlockTransactions id:tonNode.blockIdExt mode:# count:# after:mode.7?liteServer.transactionId3 reverse_order:mode.6?true want_proof:mode.5?true = liteServer.BlockTransactions;
 liteServer.listBlockTransactionsExt id:tonNode.blockIdExt mode:# count:# after:mode.7?liteServer.transactionId3 reverse_order:mode.6?true want_proof:mode.5?true = liteServer.BlockTransactionsExt;

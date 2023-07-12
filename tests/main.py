@@ -30,6 +30,11 @@ async def main():
     tr = await client.get_one_transaction('Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF', lt=39202528000001, block=blk)
 
     print(tr)
+
+    # trs = await client.raw_get_transactions('EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', 16)
+    trs = await client.get_transactions('EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', 32)
+
+    print(trs[0])
     input()
     tr = await client.get_one_transaction('Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF', lt=39202528000001, block=blk)
     print(tr)

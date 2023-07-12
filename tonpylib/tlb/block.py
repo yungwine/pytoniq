@@ -292,6 +292,9 @@ class CurrencyCollection(TlbScheme):
         other = ExtraCurrencyCollection.deserialize(cell_slice)
         return cls(grams, other)
 
+    def __repr__(self):
+        return f"{{'grams': {self.grams}, 'other': {self.other.dict}}}"
+
 
 class ExtraCurrencyCollection(TlbScheme):
     """

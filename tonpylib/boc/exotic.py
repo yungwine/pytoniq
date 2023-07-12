@@ -150,3 +150,7 @@ def check_account_proof(proof: bytes, shrd_blk: BlockIdExt, address: "Address", 
         return shard_account
 
     return
+
+
+# def check_transaction_proof(proof: bytes, )
+
