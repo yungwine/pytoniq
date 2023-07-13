@@ -19,13 +19,44 @@ async def main():
     await client.connect()
 
     await client.get_masterchain_info()
-    last = (await client.get_masterchain_info_ext())['last']
+    last = BlockIdExt.from_dict((await client.get_masterchain_info_ext())['last'])
     # s = time.time()
     # print(await client.wait_masterchain_seqno(last['seqno'] + 2, 10))
     # print(time.time() - s)
     # state = await client.raw_get_all_shards_info(BlockIdExt.from_dict(last))
 
-    blk, blk_data = await client.lookup_block(-1, 0, 31041506)
+    # blk, blk_data = await client.lookup_block(-1, 0, 31041506)
+    #31058790
+    # blk, blk_data = await client.lookup_block(-1, 0, 31068099)
+    lst, last_data = await client.lookup_block(-1, 0, last.seqno)
+    # blk, blk_data = await client.lookup_block(-1, 0, last_data.info.prev_key_block_seqno - 100)  # key block
+    blk, blk_data = await client.lookup_block(-1, -9223372036854775808, last.seqno - 100)
+
+    init_block = BlockIdExt.from_dict({
+      "root_hash": "61192b72664cbcb06f8da9f0282c8bdf0e2871e18fb457e0c7cca6d502822bfe",
+      "seqno": 27747086,
+      "file_hash": "378db1ccf9c98c3944de1c4f5ce6fea4dcd7a26811b695f9019ccc3e7200e35b",
+      "workchain": -1,
+      "shard": -9223372036854775808
+    })
+
+    # print(blk_data.info.prev_key_block_seqno)
+
+    # a, b = await client.raw_get_block_proof(known_block=init_block, target_block=last)
+    s = time.time()
+
+    await client.get_block_proof(known_block=last, target_block=blk)
+    # await client.get_block_proof(known_block=init_block, target_block=last)
+    print(time.time() - s)
+    # print(a, b)
+    # await client.raw_get_block_proof(known_block=last, target_block=blk)
+
+    input()
+    block_trs = await client.raw_get_block_transactions(blk)
+    block_trs = await client.raw_get_block_transactions_ext(blk)
+    print(block_trs)
+    input()
+    trs = await client.get_transactions('EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', 32)
     # trs = await client.raw_get_transactions('EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', 10)
     tr = await client.get_one_transaction('Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF', lt=39202528000001, block=blk)
 

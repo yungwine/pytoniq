@@ -97,6 +97,8 @@ class BlockInfo(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
+        if cell_slice.is_special():
+            return None
         tag = cell_slice.load_bytes(4)
         if tag != b'\x9b\xc7\xa9\x87':
             raise BlockError(f'BlockInfo deserialization error unknown prefix tag: {tag}')
@@ -197,8 +199,8 @@ class ExtBlkRef(TlbScheme):
     def __init__(self, cell_slice: Slice):
         self.end_lt = cell_slice.load_int(64)
         self.seqno = cell_slice.load_uint(32)
-        self.root_hash = cell_slice.load_bytes(32).hex()
-        self.file_hash = cell_slice.load_bytes(32).hex()
+        self.root_hash = cell_slice.load_bytes(32)
+        self.file_hash = cell_slice.load_bytes(32)
 
     @classmethod
     def serialize(cls, *args): ...
@@ -623,7 +625,7 @@ class ConfigParams(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
-        return cls(config_addr=cell_slice.load_bytes(32).hex(), config=cell_slice.load_ref().begin_parse().load_hashmap(32))
+        return cls(config_addr=cell_slice.load_bytes(32).hex(), config=cell_slice.load_ref().begin_parse().load_hashmap(32, value_deserializer=lambda src: src.load_ref().begin_parse()))
 
 
 class ValidatorInfo(TlbScheme):

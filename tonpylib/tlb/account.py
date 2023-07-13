@@ -354,8 +354,6 @@ class AccountBlock(TlbScheme):
         tag = cell_slice.load_uint(4)
         if tag != 5:
             raise AccountError(f'AccountBlock deserialization error: unknown prefix tag {tag}')
-        # print(cell_slice.load_bytes(32).hex())
-        # print(cell_slice.load_hashmap_aug(64, x_deserializer=lambda src: 1, y_deserializer=CurrencyCollection.deserialize))
         return cls(
             account_addr=cell_slice.load_bytes(32).hex(),
             transactions=cell_slice.load_hashmap_aug(64, x_deserializer=lambda src: Transaction.deserialize(src.load_ref().begin_parse()), y_deserializer=CurrencyCollection.deserialize),

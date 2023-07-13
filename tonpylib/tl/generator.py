@@ -4,6 +4,10 @@ import typing
 import os
 
 
+class TlError(BaseException):
+    pass
+
+
 class TlSchema:
 
     def __init__(self, id: typing.Optional[bytes], name: typing.Optional[str], class_name: typing.Optional[str], args: dict) -> None:
@@ -208,7 +212,12 @@ class TlSchemas:
             if type_ in self.base_types:
                 byte_len = self.base_types.get(type_)
                 if byte_len:  # is not None
-                    if type_ in ('int128', 'int256'):
+                    if type_ == 'Bool':
+                        if data[i:i + byte_len] == b'\xb5ur\x99':
+                            result[field] = True
+                        elif data[i:i + byte_len] == b'7\x97y\xbc':
+                            result[field] = False
+                    elif type_ in ('int128', 'int256'):
                         result[field] = data[i:i + byte_len].hex()
                     else:
                         result[field] = int.from_bytes(data[i:i + byte_len], 'little', signed=True)
@@ -237,18 +246,37 @@ class TlSchemas:
                 if type_.startswith('('):
                     subtype = type_.split()[1][:-1]
                     sch = self.get_by_name(subtype)
-                    result[field], j = self.deserialize(data[i:], False, sch.args)
-                    print(subtype)
+
+                    # result[field], j = self.deserialize(data[i:], False, sch.args)
                     if 'vector' in type_:
                         length = int.from_bytes(data[i:i + 4], 'little', signed=False)
                         i += 4
                         result[field] = []
+                        # print(length)
+                        # if sch is None:  # implicit
+                        #     if self.get_by_class_name(subtype):
+                        #         sch_id = data[i:i + 4]
+                        #         i += 4
+                        #         print(sch_id)
+                        #         # sch = self.get_by_name('liteServer.blockLinkForward')
+                        #         sch = self.get_by_id(sch_id[::-1])
+                        #         print(sch)
+                        #     else:
+                        #         raise TlError(f'unknown Tl Schema with {subtype}')
                         for _ in range(length):
-                            deser, j = self.deserialize(data[i:], False, sch.args)
+                            # print(sch, subtype)
+                            if sch:
+                                deser, j = self.deserialize(data[i:], False, sch.args)
+                            else:
+                                deser, j = self.deserialize(data[i:], True)
+
                             result[field].append(deser)
                             i += j
                 else:
                     sch = self.get_by_name(type_)
+                    if not sch:
+                        sch = self.get_by_class_name(type_)
+                        i += 4
                     result[field], j = self.deserialize(data[i:], False, sch.args)
                     i += j
         return result, i
@@ -279,7 +307,7 @@ class TlRegistrator:
         else:
             tl_id = self.get_id(schema.strip())
         args = {i: j for i, j in self._re.findall(schema)}
-        class_name = schema.split(' ')[-1]
+        class_name = schema.split(' ')[-1].replace(';', '')
         return TlSchema(tl_id, name, class_name, args)
 
     @staticmethod

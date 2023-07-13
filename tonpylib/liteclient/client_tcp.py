@@ -10,7 +10,8 @@ import typing
 from queue import Queue
 
 from ..boc import Slice, Cell
-from ..boc.exotic import check_block_header_proof, check_shard_proof, check_account_proof, check_proof
+from ..proof.check_proof import check_block_header_proof, check_shard_proof, check_account_proof, check_proof, \
+    check_block_signatures, compute_validator_set
 from ..boc.address import Address
 
 # from .crypto import ed25519Public, ed25519Private, x25519Public, x25519Private
@@ -19,11 +20,12 @@ from ..crypto.crc import crc16
 
 from ..tl.generator import TlGenerator, TlSchema, TlSchemas
 from ..tl.block import BlockId, BlockIdExt
+from ..tlb.config import ConfigParam34, ConfigParam28
 from ..tlb.transaction import Transaction
 from ..tlb.utils import deserialize_shard_hashes
 
 from ..tlb.vm_stack import VmStack
-from ..tlb.block import Block, ShardDescr, BinTree, ShardStateUnsplit
+from ..tlb.block import Block, ShardDescr, BinTree, ShardStateUnsplit, OldMcBlocksInfo, KeyExtBlkRef
 from ..tlb.account import Account, SimpleAccount, ShardAccount, AccountBlock
 
 
@@ -41,8 +43,8 @@ class AdnlClientTcp:
                  host: str,  # ipv4 host
                  port: int,
                  server_pub_key: str,  # server ed25519 public key in base64,
-                 client_private_key: typing.Optional[bytes] = None,  # can specify private key, then it's won't be generated
                  tl_schemas_path: typing.Optional[str] = None,
+                 trust_level: int = 1
                  ) -> None:
 
         """########### init ###########"""
@@ -50,13 +52,11 @@ class AdnlClientTcp:
         self.inited = False
         self.last_mc_block: BlockIdExt = None
         self.last_shard_blocks: typing.Dict[int, BlockIdExt] = None
+        self.last_key_block: BlockIdExt
 
         """########### crypto ###########"""
         self.server = Server(host, port, base64.b64decode(server_pub_key))
-        if client_private_key is None:
-            self.client = Client(Client.generate_ed25519_private_key())  # recommended
-        else:
-            self.client = Client(client_private_key)
+        self.client = Client(Client.generate_ed25519_private_key())
         self.enc_sipher = None
         self.dec_sipher = None
 
@@ -508,3 +508,136 @@ class AdnlClientTcp:
         # assert len(result) == count, f'expected {count} transactions, got {len(result)}'
 
         return result
+
+    async def raw_get_block_transactions(self, block: BlockIdExt, count: int = 256) -> typing.List[dict]:
+        mode = 39  # 100111
+        data = {'id': block.to_dict(), 'mode': mode, 'count': count, 'want_proof': b''}
+        result = await self.liteserver_request('listBlockTransactions', data)
+        transactions_ids = result['ids']
+
+        proof = Cell.one_from_boc(result['proof'])
+        check_block_header_proof(proof[0], block.root_hash)
+        acc_block = Block.deserialize(proof[0].begin_parse()).extra.account_blocks[0]
+        for tr in transactions_ids:
+            block_trs: dict = acc_block.get(int(tr['account'], 16)).transactions[0]
+            block_tr: Cell = block_trs.get(tr['lt'])
+            tr['hash'] = bytes.fromhex(tr['hash'])
+            tr.pop('mode')  # in this lib mode is a fixed num, so we don't really need it in result, moreover mode can mislead
+            assert block_tr.get_hash(0) == tr['hash']
+            tr['account'] = Address((block.workchain, bytes.fromhex(tr['account'])))
+
+        return transactions_ids
+
+    async def raw_get_block_transactions_ext(self, block: BlockIdExt, count: int = 256) -> typing.List[Transaction]:
+        mode = 39  # 100111
+        data = {'id': block.to_dict(), 'mode': mode, 'count': count, 'want_proof': b''}
+        result = await self.liteserver_request('listBlockTransactionsExt', data)
+
+        transactions_cells = Cell.from_boc(result['transactions'])
+        proof = Cell.one_from_boc(result['proof'])
+        check_block_header_proof(proof[0], block.root_hash)
+        acc_block = Block.deserialize(proof[0].begin_parse()).extra.account_blocks[0]
+        tr_result = []
+
+        for tr_root in transactions_cells:
+            transaction = Transaction.deserialize(tr_root.begin_parse())
+            prunned_tr_cell = acc_block.get(int(transaction.account_addr, 16)).transactions[0].get(transaction.lt)
+            assert prunned_tr_cell.get_hash(0) == tr_root.get_hash(0)
+            tr_result.append(transaction)
+
+        return tr_result
+
+    async def raw_get_block_proof(self, known_block: BlockIdExt, target_block: typing.Optional[BlockIdExt] = None) -> typing.Tuple[bool, BlockIdExt]:
+        """
+        :param known_block: block you trust
+        :param target_block: block you want to prove
+        :return: (bool, BlockIdExt) - is completed proof, last trusted block
+        """
+
+        mode = 0
+
+        if target_block:
+            mode = 1  # 1
+        data = {'known_block': known_block.to_dict(), 'mode': mode, 'target_block': target_block.to_dict()}
+        result = await self.liteserver_request('getBlockProof', data)
+
+        last_trusted = known_block
+
+        for step in result['steps']:
+
+            if 'config_proof' in step:  # blockLinkForward
+
+                assert last_trusted == BlockIdExt.from_dict(step['from'])
+
+                to_block = BlockIdExt.from_dict(step['to'])
+
+                dest_proof = Cell.one_from_boc(step['dest_proof'])
+                config_proof = Cell.one_from_boc(step['config_proof'])
+
+                check_block_header_proof(dest_proof[0], to_block.root_hash)
+
+                block = Block.deserialize(config_proof[0].begin_parse())
+
+                param_34 = ConfigParam34.deserialize(block.extra.custom.config.config[34])
+                param_28 = ConfigParam28.deserialize(block.extra.custom.config.config[28])
+
+                nodes = compute_validator_set(param_28, to_block, param_34.cur_validators)
+
+                check_block_signatures(nodes=nodes, signatures=step['signatures']['signatures'], blk=to_block)
+
+                last_trusted = to_block
+
+            else:  # blockLinkBack
+                assert last_trusted == BlockIdExt.from_dict(step['from'])
+                if step['to_key_block']:
+                    to_block = BlockIdExt.from_dict(step['to'])
+
+                    dest_proof = Cell.one_from_boc(step['dest_proof'])
+                    state_proof = Cell.one_from_boc(step['state_proof'])
+                    proof = Cell.one_from_boc(step['proof'])
+
+                    # block = Block.deserialize(proof[0].begin_parse())
+
+                    state_hash = check_block_header_proof(proof[0], last_trusted.root_hash, True)
+
+                    assert state_hash == state_proof[0].get_hash(0)
+
+                    state = ShardStateUnsplit.deserialize(state_proof[0].begin_parse())
+
+                    last_key = state.custom.last_key_block
+
+                    check_block_header_proof(dest_proof[0], last_key.root_hash)
+
+                    assert to_block.root_hash == last_key.root_hash
+
+                    last_trusted = to_block
+                else:
+                    to_block = BlockIdExt.from_dict(step['to'])
+
+                    dest_proof = Cell.one_from_boc(step['dest_proof'])
+                    state_proof = Cell.one_from_boc(step['state_proof'])
+                    proof = Cell.one_from_boc(step['proof'])
+
+                    state_hash = check_block_header_proof(proof[0], last_trusted.root_hash, True)
+
+                    assert state_hash == state_proof[0].get_hash(0)
+
+                    state = ShardStateUnsplit.deserialize(state_proof[0].begin_parse())
+                    blk = state.custom.prev_blocks[0].get(to_block.seqno)
+                    if not blk:
+                        raise LiteClientError(f'cannot find {to_block} in OldMcBlocksInfo')
+                    blk: KeyExtBlkRef
+
+                    assert blk.blk_ref.root_hash == to_block.root_hash
+
+                    last_trusted = to_block
+
+        return last_trusted == target_block, last_trusted
+
+    async def get_block_proof(self, known_block: BlockIdExt, target_block: BlockIdExt):
+        print('target:', target_block)  # debug
+        last_proved = known_block
+        while last_proved != target_block:
+            _, last_proved = await self.raw_get_block_proof(last_proved, target_block)
+            print('proved', last_proved)  # debug
+        return
