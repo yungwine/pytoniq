@@ -597,7 +597,7 @@ class McBlockExtra(TlbScheme):
         if tag != b'\xcc\xa5':
             raise BlockError(f'McBlockExtra deserialization error unknown prefix tag: {tag}')
         key_block = cell_slice.load_bit()
-        shard_hashes = cell_slice.load_dict(32)
+        shard_hashes = deserialize_shard_hashes(cell_slice)
         shard_fees = cell_slice.load_maybe_ref()
         ref = cell_slice.load_ref().begin_parse()
         prev_blk_signatures = ref.load_dict(16)

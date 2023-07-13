@@ -1,7 +1,7 @@
 import asyncio
 import time
 
-from tonpylib.liteclient.client_tcp import AdnlClientTcp
+from tonpylib.liteclient.client import LiteClient
 from tonpylib.tl.block import BlockIdExt
 
 host = '65.21.141.231'
@@ -11,7 +11,7 @@ pub_key_b64 = 'BYSVpL7aPk0kU5CtlsIae/8mf2B/NrBi7DKmepcjX6Q='
 
 
 async def main():
-    client = AdnlClientTcp(
+    client = LiteClient(
         host,
         port,
         pub_key_b64
@@ -31,6 +31,7 @@ async def main():
     lst, last_data = await client.lookup_block(-1, 0, last.seqno)
     # blk, blk_data = await client.lookup_block(-1, 0, last_data.info.prev_key_block_seqno - 100)  # key block
     blk, blk_data = await client.lookup_block(-1, -9223372036854775808, last.seqno - 100)
+    await client.raw_get_block(blk)
 
     init_block = BlockIdExt.from_dict({
       "root_hash": "61192b72664cbcb06f8da9f0282c8bdf0e2871e18fb457e0c7cca6d502822bfe",
@@ -39,6 +40,7 @@ async def main():
       "workchain": -1,
       "shard": -9223372036854775808
     })
+
 
     # print(blk_data.info.prev_key_block_seqno)
 

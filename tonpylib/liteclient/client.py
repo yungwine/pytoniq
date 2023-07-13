@@ -37,7 +37,7 @@ class RunGetMethodError(LiteClientError):
     pass
 
 
-class AdnlClientTcp:
+class LiteClient:
 
     def __init__(self,
                  host: str,  # ipv4 host
@@ -690,3 +690,35 @@ class AdnlClientTcp:
         state_proof = Cell.one_from_boc(result['state_proof'])
 
         return self.unpack_config(blk, config_proof, state_proof)
+
+    async def get_libraries(self, library_list: typing.List[bytes]):
+        data = {'library_list': library_list}
+
+        result = await self.liteserver_request('getLibraries', data)
+
+        return result['result']
+
+    async def get_shard_block_proof(self, blk: BlockIdExt):
+        data = {'id': blk.to_dict()}
+
+        result = await self.liteserver_request('getShardBlockProof', data)
+
+        mc_block = BlockIdExt.from_dict(result['masterchain_id'])
+        for link in result['links']:
+            if BlockIdExt.from_dict(link['id']) == blk:
+                proof = Cell.one_from_boc(link['proof'])
+                check_block_header_proof(proof[0], mc_block.root_hash)
+                shard = Block.deserialize(proof[0].begin_parse()).extra.custom.shard_hashes[blk.workchain].list[0].__dict__
+                shardblk = BlockIdExt.from_dict(shard)
+                shardblk.seqno = shard['seq_no']
+                shardblk.workchain = blk.workchain
+                assert shardblk == blk
+            else:
+                raise NotImplementedError()
+
+    async def raw_send_message(self, message: bytes):
+        data = {'body': message}
+
+        result = await self.liteserver_request('sendMessage', data)
+
+        return result['status']
