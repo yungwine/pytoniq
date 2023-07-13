@@ -20,12 +20,12 @@ from ..crypto.crc import crc16
 
 from ..tl.generator import TlGenerator, TlSchema, TlSchemas
 from ..tl.block import BlockId, BlockIdExt
-from ..tlb.config import ConfigParam34, ConfigParam28
+from ..tlb.config import ConfigParam34, ConfigParam28, ConfigParam
 from ..tlb.transaction import Transaction
 from ..tlb.utils import deserialize_shard_hashes
 
 from ..tlb.vm_stack import VmStack
-from ..tlb.block import Block, ShardDescr, BinTree, ShardStateUnsplit, OldMcBlocksInfo, KeyExtBlkRef
+from ..tlb.block import Block, ShardDescr, BinTree, ShardStateUnsplit, OldMcBlocksInfo, KeyExtBlkRef, ConfigParams
 from ..tlb.account import Account, SimpleAccount, ShardAccount, AccountBlock
 
 
@@ -641,3 +641,52 @@ class AdnlClientTcp:
             _, last_proved = await self.raw_get_block_proof(last_proved, target_block)
             print('proved', last_proved)  # debug
         return
+
+    def unpack_config(self, block: BlockIdExt, config_proof: Cell, state_proof: Cell):
+        state_hash = check_block_header_proof(state_proof[0], block.root_hash, True)
+
+        if config_proof[0].get_hash(0) != state_hash:
+            raise LiteClientError('hashes mismach')
+
+        shard = ShardStateUnsplit.deserialize(config_proof[0].begin_parse())
+        config = shard.custom.config.config
+        config_res = {}
+        for i, v in config.items():
+            if i in ConfigParam.params:
+                config_res[i] = ConfigParam.params[i].deserialize(v)
+            else:
+                config_res[i] = v
+
+        return config_res
+
+    async def get_config_all(self, blk: typing.Optional[BlockIdExt] = None):
+
+        if blk is None:
+            blk = self.last_mc_block
+
+        mode = 0  # ?
+
+        data = {'mode': mode, 'id': blk.to_dict()}
+
+        result = await self.liteserver_request('getConfigAll', data)
+
+        config_proof = Cell.one_from_boc(result['config_proof'])
+        state_proof = Cell.one_from_boc(result['state_proof'])
+
+        return self.unpack_config(blk, config_proof, state_proof)
+
+    async def get_config_params(self, params: typing.List[int], blk: typing.Optional[BlockIdExt] = None):
+
+        if blk is None:
+            blk = self.last_mc_block
+
+        mode = 0  # ?
+
+        data = {'mode': mode, 'id': blk.to_dict(), 'param_list': params}
+
+        result = await self.liteserver_request('getConfigParams', data)
+
+        config_proof = Cell.one_from_boc(result['config_proof'])
+        state_proof = Cell.one_from_boc(result['state_proof'])
+
+        return self.unpack_config(blk, config_proof, state_proof)

@@ -621,8 +621,13 @@ _ GlobalVersion = ConfigParam 8;  // all zero if absent
 _ mandatory_params:(Hashmap 32 True) = ConfigParam 9;
 _ critical_params:(Hashmap 32 True) = ConfigParam 10;
 
-cfg_vote_cfg#36 min_tot_rounds:uint8 max_tot_rounds:uint8 min_wins:uint8 max_losses:uint8 min_store_sec:uint32 max_store_sec:uint32 bit_price:uint32 cell_price:uint32 = ConfigProposalSetup;
-cfg_vote_setup#91 normal_params:^ConfigProposalSetup critical_params:^ConfigProposalSetup = ConfigVotingSetup;
+cfg_vote_cfg#36 min_tot_rounds:uint8 max_tot_rounds:uint8
+    min_wins:uint8 max_losses:uint8 min_store_sec:uint32
+    max_store_sec:uint32 bit_price:uint32 cell_price:uint32
+     = ConfigProposalSetup;
+
+cfg_vote_setup#91 normal_params:^ConfigProposalSetup
+    critical_params:^ConfigProposalSetup = ConfigVotingSetup;
 _ ConfigVotingSetup = ConfigParam 11;
 
 cfg_proposal#f3 param_id:int32 param_value:(Maybe ^Cell) if_hash_equal:(Maybe uint256)
@@ -726,6 +731,7 @@ catchain_config_new#c2 flags:(## 7) { flags = 0 } shuffle_mc_validators:Bool
   mc_catchain_lifetime:uint32 shard_catchain_lifetime:uint32
   shard_validators_lifetime:uint32 shard_validators_num:uint32 = CatchainConfig;
 
+
 consensus_config#d6 round_candidates:# { round_candidates >= 1 }
   next_candidate_delay_ms:uint32 consensus_timeout_ms:uint32
   fast_attempts:uint32 attempt_duration:uint32 catchain_max_deps:uint32
@@ -750,6 +756,7 @@ consensus_config_v4#d9 flags:(## 7) { flags = 0 } new_catchain_ids:Bool
   fast_attempts:uint32 attempt_duration:uint32 catchain_max_deps:uint32
   max_block_bytes:uint32 max_collated_bytes:uint32
   proto_version:uint16 catchain_max_blocks_coeff:uint32 = ConsensusConfig;
+
 
 _ CatchainConfig = ConfigParam 28;
 _ ConsensusConfig = ConfigParam 29;

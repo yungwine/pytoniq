@@ -144,20 +144,22 @@ class TlSchemas:
                         result += temp
                     else:
                         pass  # TODO
-                elif type_.startswith('('):
-                    subtype = type_.split()[1][:-1]
-                    if 'vector' in type_:
-                        temp = len(value).to_bytes(4, 'little', signed=False)
-                        for v in value:
-                            temp += self.serialize_field(subtype, v)
-                        result += temp
+
         else:
             schema = self.get_by_class_name(type_)
             if schema:  # implicit
                 result += self.serialize(schema, value, boxed=True)
             else:  # explicit
                 # print('explicit', self.get_by_name(type_))
-                result += self.serialize(self.get_by_name(type_), value, boxed=False)
+                if type_.startswith('('):
+                    subtype = type_.split()[1][:-1]
+                    if 'vector' in type_:
+                        temp = len(value).to_bytes(4, 'little', signed=False)
+                        for v in value:
+                            temp += self.serialize_field(subtype, v)
+                        result += temp
+                else:
+                    result += self.serialize(self.get_by_name(type_), value, boxed=False)
         return result
 
     def serialize(self, schema: TlSchema, data: dict, boxed: bool = True) -> bytes:

@@ -131,9 +131,9 @@ class GlobalVersion(TlbScheme):
     capabilities#c4 version:uint32 capabilities:uint64 = GlobalVersion;
     """
 
-    def __init__(self, cell_slice: Slice):
-        self.version = cell_slice.load_int(32)
-        self.capabilities = cell_slice.load_uint(64)
+    def __init__(self, version: int, capabilities: int):
+        self.version = version
+        self.capabilities = capabilities
 
     @classmethod
     def serialize(cls, *args): ...
@@ -143,7 +143,7 @@ class GlobalVersion(TlbScheme):
         tag = cell_slice.load_bytes(1)
         if tag[:1] != b'\xc4':
             raise BlockError(f'GlobalVersion deserialization error: unknown prefix: {tag}')
-        return cls(cell_slice)
+        return cls(version=cell_slice.load_int(32), capabilities=cell_slice.load_uint(64))
 
 
 class BlkMasterInfo(TlbScheme):

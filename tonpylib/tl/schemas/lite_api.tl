@@ -79,8 +79,8 @@ liteServer.lookupBlock mode:# id:tonNode.blockId lt:mode.1?long utime:mode.2?int
 liteServer.listBlockTransactions id:tonNode.blockIdExt mode:# count:# after:mode.7?liteServer.transactionId3 reverse_order:mode.6?true want_proof:mode.5?true = liteServer.BlockTransactions; // done
 liteServer.listBlockTransactionsExt id:tonNode.blockIdExt mode:# count:# after:mode.7?liteServer.transactionId3 reverse_order:mode.6?true want_proof:mode.5?true = liteServer.BlockTransactionsExt; // done
 liteServer.getBlockProof mode:# known_block:tonNode.blockIdExt target_block:mode.0?tonNode.blockIdExt = liteServer.PartialBlockProof; // done
-liteServer.getConfigAll mode:# id:tonNode.blockIdExt = liteServer.ConfigInfo;
-liteServer.getConfigParams mode:# id:tonNode.blockIdExt param_list:(vector int) = liteServer.ConfigInfo;
+liteServer.getConfigAll mode:# id:tonNode.blockIdExt = liteServer.ConfigInfo; // done
+liteServer.getConfigParams mode:# id:tonNode.blockIdExt param_list:(vector int) = liteServer.ConfigInfo; // done
 liteServer.getValidatorStats#091a58bc mode:# id:tonNode.blockIdExt limit:int start_after:mode.0?int256 modified_after:mode.2?int = liteServer.ValidatorStats;
 liteServer.getLibraries library_list:(vector int256) = liteServer.LibraryResult;
 liteServer.getShardBlockProof id:tonNode.blockIdExt = liteServer.ShardBlockProof;
