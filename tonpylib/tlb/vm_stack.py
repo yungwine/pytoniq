@@ -93,6 +93,16 @@ class VmStackValue(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
+        tag = cell_slice.preload_bits(15).to01()
+        if tag == '000000100000000':  # #0201_
+            cell_slice.load_bits(15)
+            return cell_slice.load_int(257)
+            # actually the code below is more convenient (for keys for e.g.) but may work incorrectly for a big positive integer
+            if cell_slice.preload_bit():
+                return cell_slice.load_int(257)
+            cell_slice.load_bit()
+            return cell_slice.load_bytes(32)
+
         tag = cell_slice.preload_bytes(2)
         if tag[:1] == b'\x00':
             cell_slice.load_bytes(1)
@@ -100,9 +110,6 @@ class VmStackValue(TlbScheme):
         elif tag[:1] == b'\x01':
             cell_slice.load_bytes(1)
             return cell_slice.load_int(64)
-        elif tag == b'\x02\x01':
-            cell_slice.load_bytes(2)
-            return cell_slice.load_int(257)
         elif tag == b'\x02\xff':
             cell_slice.load_bytes(2)
             return None
