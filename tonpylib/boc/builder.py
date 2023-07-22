@@ -15,10 +15,11 @@ from .tvm_bitarray import TvmBitarray
 
 class Builder(NullCell):
 
-    def __init__(self, size: int = 1023):
+    def __init__(self, size: int = 1023, type_: int = -1):
         self._size = size
         self._bits = TvmBitarray(size)
         self._refs = []
+        self._type = type_
 
     @property
     def bits(self):
@@ -61,6 +62,10 @@ class Builder(NullCell):
     def store_ref(self, ref: Cell):
         assert len(self._refs) <= 4, 'builder refs overflow'
         self._refs.append(copy.deepcopy(ref))
+        return self
+
+    def store_bool(self, value: bool):
+        self.bits.append(value)
         return self
 
     def store_bit_int(self, bit: int):
@@ -131,10 +136,11 @@ class Builder(NullCell):
 
         return self.store_int(address.wc, 8).store_bytes(address.hash_part)
 
-    def store_dict(self): ...
+    def store_dict(self, dict_: typing.Optional[Cell] = None):
+        return self.store_maybe_ref(dict_)
 
     def end_cell(self) -> Cell:
-        return Cell(self._bits, self._refs)
+        return Cell(self._bits, self._refs, self._type)
 
     def __repr__(self) -> str:
         return f'<Builder {len(self.bits)}[{self.bits.tobytes().hex().upper()}] -> {len(self.refs)} refs>'
