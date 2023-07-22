@@ -105,9 +105,16 @@ class MessageAny(TlbScheme):
         self.init = init
         self.body = body
 
-    @classmethod
-    def serialize(cls, *args):
-        pass
+    def serialize(self) -> Cell:
+        builder = Builder().store_cell(self.info.serialize())
+        if self.init:
+            builder.store_bit(1)  # maybe true
+            builder.store_bit(1)  # Either right
+            builder.store_ref(self.init.serialize())
+        else:
+            builder.store_bit(0)  # maybe false
+        builder.store_maybe_ref(self.body)  # Either right
+        return builder.end_cell()
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
@@ -150,44 +157,26 @@ class CommonMsgInfo(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
-        tag = cell_slice.load_bit()
+        tag = cell_slice.preload_bit()
         if not tag:  # 0
-            return InternalMsgInfo(ihr_disabled=cell_slice.load_bool(),
-                                   bounce=cell_slice.load_bool(),
-                                   bounced=cell_slice.load_bool(),
-                                   src=cell_slice.load_address(),
-                                   dest=cell_slice.load_address(),
-                                   value=CurrencyCollection.deserialize(cell_slice),
-                                   ihr_fee=cell_slice.load_coins(),
-                                   fwd_fee=cell_slice.load_coins(),
-                                   created_lt=cell_slice.load_uint(64),
-                                   created_at=cell_slice.load_uint(32)
-                                   )
-        tag = cell_slice.load_bit()
-        if not tag:  # 10
-            return ExternalMsgInfo(src=cell_slice.load_address(),
-                                   dest=cell_slice.load_address(),
-                                   import_fee=cell_slice.load_coins()
-                                   )
+            return InternalMsgInfo.deserialize(cell_slice)
+        tag = cell_slice.preload_bits(2)
+        if tag == '10':
+            return ExternalMsgInfo.deserialize(cell_slice)
         # 11
-        return ExternalOutMsgInfo(src=cell_slice.load_address(),
-                                  dest=cell_slice.load_address(),
-                                  created_lt=cell_slice.load_uint(64),
-                                  created_at=cell_slice.load_uint(32)
-                                  )
+        return ExternalOutMsgInfo.deserialize(cell_slice)
 
 
-class InternalMsgInfo(TlbScheme):
+class InternalMsgInfo(CommonMsgInfo):
     """
     int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool
     src:MsgAddressInt dest:MsgAddressInt
     value:CurrencyCollection ihr_fee:Grams fwd_fee:Grams
     created_lt:uint64 created_at:uint32 = CommonMsgInfo;
     """
-    def __init__(self, ihr_disabled: bool, bounce: bool,
-                 bounced: bool, src: Address, dest: Address,
-                 value: CurrencyCollection, ihr_fee: int,
-                 fwd_fee: int, created_lt: int, created_at: int):
+    def __init__(self, ihr_disabled: bool, bounce: bool, bounced: bool, src: Address, dest: Address,
+                 value: CurrencyCollection, ihr_fee: int, fwd_fee: int, created_lt: int, created_at: int):
+        super().__init__()
         self.ihr_disabled = ihr_disabled
         self.bounce = bounce
         self.bounced = bounced
@@ -200,52 +189,106 @@ class InternalMsgInfo(TlbScheme):
         self.created_lt = created_lt
         self.created_at = created_at
 
-    @classmethod
-    def serialize(cls, *args):
-        ...
+    def serialize(self) -> Cell:
+        builder = Builder()
+        builder.store_uint(0, 1)  # $0
+        return builder\
+            .store_bool(self.ihr_disabled)\
+            .store_bool(self.bounce)\
+            .store_bool(self.bounced)\
+            .store_address(self.src)\
+            .store_address(self.dest)\
+            .store_cell(self.value.serialize())\
+            .store_coins(self.ihr_fee)\
+            .store_coins(self.fwd_fee)\
+            .store_uint(self.created_lt, 64)\
+            .store_uint(self.created_at, 32)\
+            .end_cell()
 
     @classmethod
-    def deserialize(cls, *args):
-        ...
+    def deserialize(cls, cell_slice: Slice):
+        tag = cell_slice.load_bit()
+        if tag:
+            raise TransactionError(f'InternalMsgInfo deserialization error unknown prefix tag: {tag}')
+        return cls(
+            ihr_disabled=cell_slice.load_bool(),
+            bounce=cell_slice.load_bool(),
+            bounced=cell_slice.load_bool(),
+            src=cell_slice.load_address(),
+            dest=cell_slice.load_address(),
+            value=CurrencyCollection.deserialize(cell_slice),
+            ihr_fee=cell_slice.load_coins(),
+            fwd_fee=cell_slice.load_coins(),
+            created_lt=cell_slice.load_uint(64),
+            created_at=cell_slice.load_uint(32)
+        )
 
 
-class ExternalMsgInfo(TlbScheme):
+class ExternalMsgInfo(CommonMsgInfo):
     """
     ext_in_msg_info$10 src:MsgAddressExt dest:MsgAddressInt
     import_fee:Grams = CommonMsgInfo;
     """
     def __init__(self, src: Address, dest: Address, import_fee: int):
+        super().__init__()
         self.src = src
         self.dest = dest
         self.import_fee = import_fee
 
-    @classmethod
-    def serialize(cls, *args):
-        ...
+    def serialize(self) -> Cell:
+        builder = Builder()
+        builder.store_uint(2, 2)  # $10
+        return builder\
+            .store_address(self.src)\
+            .store_address(self.dest)\
+            .store_coins(self.import_fee)\
+            .end_cell()
 
     @classmethod
-    def deserialize(cls, *args):
-        ...
+    def deserialize(cls, cell_slice: Slice):
+        tag = cell_slice.load_bits(2)
+        if tag != '10':
+            raise TransactionError(f'ExternalMsgInfo deserialization error unknown prefix tag: {tag}')
+        return cls(
+            src=cell_slice.load_address(),
+            dest=cell_slice.load_address(),
+            import_fee=cell_slice.load_coins()
+        )
 
 
-class ExternalOutMsgInfo(TlbScheme):
+class ExternalOutMsgInfo(CommonMsgInfo):
     """
     ext_out_msg_info$11 src:MsgAddressInt dest:MsgAddressExt
     created_lt:uint64 created_at:uint32 = CommonMsgInfo;
     """
     def __init__(self, src: Address, dest: Address, created_lt: int, created_at: int):
+        super().__init__()
         self.src = src
         self.dest = dest
         self.created_lt = created_lt
         self.created_at = created_at
 
-    @classmethod
-    def serialize(cls, *args):
-        pass
+    def serialize(self) -> Cell:
+        builder = Builder()
+        builder.store_uint(3, 2)  # $11
+        return builder\
+            .store_address(self.src)\
+            .store_address(self.dest)\
+            .store_uint(self.created_lt, 64)\
+            .store_uint(self.created_at, 32)\
+            .end_cell()
 
     @classmethod
-    def deserialize(cls, *args):
-        ...
+    def deserialize(cls, cell_slice: Slice):
+        tag = cell_slice.load_bits(2)
+        if tag != '11':
+            raise TransactionError(f'ExternalOutMsgInfo deserialization error unknown prefix tag: {tag}')
+        return cls(
+            src=cell_slice.load_address(),
+            dest=cell_slice.load_address(),
+            created_lt=cell_slice.load_uint(64),
+            created_at=cell_slice.load_uint(32)
+        )
 
 
 """ ########## PHASES ########## """

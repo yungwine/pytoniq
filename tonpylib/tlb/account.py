@@ -14,8 +14,8 @@ class SimpleAccount(TlbScheme):
     """
     // simple_balance$_ Grams = AccountBalance;
 
-    account_none$0 = Account;
-    account$1 addr:Address balance:Grams state:SimpleAccountState = Account;
+    account_none$0 = SimpleAccount;
+    account$1 addr:Address balance:Grams state:SimpleAccountState = SimpleAccount;
     """
     """
     this schema is needed for user-friendly and familiar account representation,
@@ -35,8 +35,19 @@ class SimpleAccount(TlbScheme):
         ...
 
     @classmethod
-    def from_raw(cls, account: "Account"):
+    def from_raw(cls, account: "Account", address: typing.Optional[Address] = None):
+        if account is None:
+            return cls(address=address, balance=0, state=SimpleAccountState.from_raw(None))
         return cls(address=account.addr, balance=account.storage.balance.grams, state=SimpleAccountState.from_raw(account.storage.state))
+
+    def is_uninitialized(self):
+        return self.state.type_ == 'uninitialized'
+
+    def is_frozen(self):
+        return self.state.type_ == 'frozen'
+
+    def is_active(self):
+        return self.state.type_ == 'active'
 
     def __repr__(self):
         return f'<SimpleAccount {self.address}: state={self.state.type_}, balance={self.balance}>'
@@ -46,7 +57,7 @@ class SimpleAccountState(TlbScheme):
     """
     uninitialized$00 = SimpleAccountState;
     frozen$01 state_hash:bits256 = SimpleAccountState;
-    active$10 code:^Cell data:^Cell = SimpleAccountState;
+    active$10 state_init:StateInit = SimpleAccountState;
     """
     """
     this schema is needed for user-friendly and familiar account state representation,
@@ -55,13 +66,11 @@ class SimpleAccountState(TlbScheme):
 
     def __init__(self, type_: typing.Literal["uninitialized", "frozen", "active"],
                  state_hash: typing.Optional[bytes] = None,
-                 code: typing.Optional[Cell] = None,
-                 data: typing.Optional[Cell] = None,
+                 state_init: typing.Optional["StateInit"] = None,
                  ):
         self.type_ = type_
         self.state_hash = state_hash
-        self.code = code
-        self.data = data
+        self.state_init = state_init
 
     @classmethod
     def serialize(cls, *args):
@@ -72,12 +81,12 @@ class SimpleAccountState(TlbScheme):
         ...
 
     @classmethod
-    def from_raw(cls, account_state: "AccountState"):
-        if account_state.type_ == 'account_uninit':
+    def from_raw(cls, account_state: typing.Optional["AccountState"]):
+        if account_state is None or account_state.type_ == 'account_uninit':
             return cls('uninitialized')
         if account_state.type_ == 'account_frozen':
             return cls('frozen', state_hash=account_state.state_hash)
-        return cls('active', code=account_state.state_init.code, data=account_state.state_init.data)
+        return cls('active', state_init=account_state.state_init)
 
 
 class Account(TlbScheme):
@@ -232,20 +241,25 @@ class StateInit(TlbScheme):
     """
 
     def __init__(self,
-                 split_depth: typing.Optional[int],
-                 special: typing.Optional["TickTock"],
-                 code: typing.Optional[Cell],
-                 data: typing.Optional[Cell],
-                 library: typing.Optional[Cell]):
+                 split_depth: typing.Optional[int] = None,
+                 special: typing.Optional["TickTock"] = None,
+                 code: typing.Optional[Cell] = None,
+                 data: typing.Optional[Cell] = None,
+                 library: typing.Optional[Cell] = None):
         self.split_depth = split_depth
         self.special = special
         self.code = code
         self.data = data
         self.library = library
 
-    @classmethod
-    def serialize(cls, *args):
-        pass
+    def serialize(self) -> Cell:
+        builder = Builder()
+        builder.store_bit(1).store_uint(self.split_depth, 5) if self.split_depth is not None else builder.store_bit(0)
+        builder.store_bit(1).store_cell(self.special.serialize()) if self.special is not None else builder.store_bit(0)
+        builder.store_maybe_ref(self.code)
+        builder.store_maybe_ref(self.data)
+        builder.store_maybe_ref(self.library)
+        return builder.end_cell()
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
@@ -266,9 +280,8 @@ class TickTock(TlbScheme):
         self.tick = tick
         self.tock = tock
 
-    @classmethod
-    def serialize(cls, *args):
-        pass
+    def serialize(self) -> Cell:
+        return Builder().store_bool(self.tick).store_bool(self.tock).end_cell()
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):

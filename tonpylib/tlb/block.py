@@ -3,7 +3,8 @@ import typing
 from .tlb import TlbScheme, TlbError
 from .account import ShardAccount, AccountBlock
 from .utils import MerkleUpdate, deserialize_shard_hashes
-from ..boc import Slice, Cell
+from ..boc import Slice, Cell, Builder
+from ..boc.dict.dict import HashMap
 
 
 # TODO provide in each constructor already deserialized args, not slice
@@ -281,12 +282,14 @@ class CurrencyCollection(TlbScheme):
     currencies$_ grams:Grams other:ExtraCurrencyCollection = CurrencyCollection;
     """
 
-    def __init__(self, grams: int, other: "ExtraCurrencyCollection"):
+    def __init__(self, grams: int, other: "ExtraCurrencyCollection" = None) -> None:
         self.grams = grams
+        if other is None:
+            other = ExtraCurrencyCollection({})
         self.other = other
 
-    @classmethod
-    def serialize(cls, *args): ...
+    def serialize(self):
+        return Builder().store_coins(self.grams).store_cell(self.other.serialize()).end_cell()
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
@@ -306,15 +309,16 @@ class ExtraCurrencyCollection(TlbScheme):
     def __init__(self, dict_: dict):
         self.dict = dict_
 
-    @classmethod
-    def serialize(cls, *args): ...
+    def serialize(self) -> Cell:
+        dict_cell = HashMap(32, value_serializer=lambda src, dest: dest.store_uint(src, 32)).serialize()
+        return Builder().store_dict(dict_cell).end_cell()
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
         def value_deserializer(src):
             return src.load_var_uint(5)
-        dict = cell_slice.load_dict(32, value_deserializer=value_deserializer)
-        return cls(dict)
+        dict_ = cell_slice.load_dict(32, value_deserializer=value_deserializer)
+        return cls(dict_)
 
 
 class ShardState(TlbScheme):
@@ -533,6 +537,8 @@ class McStateExtra(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
+        if cell_slice.is_special():
+            return None
         tag = cell_slice.load_bytes(2)
         if tag != b'\xcc&':
             raise BlockError(f'McStateExtra deserialization error unknown prefix tag: {tag}')

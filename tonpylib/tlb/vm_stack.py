@@ -18,7 +18,7 @@ class VmStack(TlbScheme):
     def serialize(cls, data: list) -> "Cell":
         result = Builder()
         result.store_uint(len(data), 24)  # depth
-        return result.store_cell(VmStackList.serialize(copy.deepcopy(data))).end_cell()
+        return result.store_cell(VmStackList.serialize(data.copy())).end_cell()
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
@@ -71,8 +71,13 @@ class VmStackValue(TlbScheme):
                 builder.store_bytes(b'\x01')
                 builder.store_int(value, 64)
             else:
-                builder.store_bytes(b'\x02\x01')
+                builder.store_bits('000000100000000')  # 0201_
+                # builder.store_bytes(b'\x02\x01')
                 builder.store_int(value, 257)
+        elif isinstance(value, bytes):
+            builder.store_bits('0000001000000000')  # 0200
+            assert len(value) <= 32, 'bytes length should be less than 32'
+            builder.store_bytes(value)
         elif isinstance(value, Cell):
             builder.store_bytes(b'\x03')
             builder.store_ref(value)
