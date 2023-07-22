@@ -24,20 +24,6 @@ class WalletError(ContractError):
 
 class Wallet(Contract):
 
-    async def get_seqno(self) -> int:
-        """
-        :return: seqno from wallet's get method
-        """
-        return (await super().run_get_method('seqno'))[0]
-
-    async def get_public_key(self) -> int:
-        """
-        :return: public key from wallet's get method
-        """
-        if self.__class__ == WalletV3R1:
-            raise Exception('WalletV3R1 doesn\'t have get_public_key get method. Use .public_key attribute')
-        return (await super().run_get_method('get_public_key'))[0]
-
     @classmethod
     async def from_private_key(cls, provider: LiteClient, private_key: bytes, wc: int = 0,
                                wallet_id: typing.Optional[int] = None, version: str = 'v3r2'):
@@ -53,6 +39,9 @@ class Wallet(Contract):
                                               private_key=private_key)
         else:
             raise Exception(f'Wallet version {version} does not supported')
+
+    @staticmethod
+    def raw_create_transfer_msg(*args, **kwargs): ...
 
     @classmethod
     async def from_mnemonic(cls, provider: LiteClient, mnemonics: typing.Union[list, str], wc: int = 0,
@@ -77,6 +66,36 @@ class Wallet(Contract):
         return mnemo, await cls.from_mnemonic(provider, mnemo, wc, wallet_id, version)
 
     @staticmethod
+    def create_wallet_internal_message(destination: Address, send_mode: int = 3, value: int = 0, body: typing.Union[Cell, str] = None,
+                                       state_init: typing.Optional[StateInit] = None, **kwargs) -> WalletMessage:
+        if isinstance(body, str):
+            body = Builder()\
+                .store_uint(0, 32)\
+                .store_string(body)\
+                .end_cell()
+
+        message = Contract.create_internal_msg(dest=destination, value=value, body=body, state_init=state_init, **kwargs)
+        return WalletMessage(send_mode=send_mode, message=message)
+
+    async def send_init_external(self):
+        if not self.state_init:
+            raise ContractError('contract does not have state_init attribute')
+        if 'private_key' not in self.__dict__:
+            raise WalletError('must specify wallet private key!')
+        body = self.raw_create_transfer_msg(private_key=self.private_key, seqno=0, wallet_id=self.wallet_id, messages=[])
+        return await self.send_external(state_init=self.state_init, body=body)
+
+    async def raw_transfer(self, *args, **kwargs): ...
+
+    async def transfer(self, *args, **kwargs): ...
+
+
+class BaseWallet(Wallet):
+    """
+    class for user wallets such as v4r2, v3r2, etc.
+    """
+
+    @staticmethod
     def raw_create_transfer_msg(private_key: bytes, seqno: int, wallet_id: int, messages: typing.List[WalletMessage],
                                 valid_until: typing.Optional[int] = None) -> Cell:
         signing_message = Builder().store_uint(wallet_id, 32)
@@ -97,26 +116,6 @@ class Wallet(Contract):
             .store_cell(signing_message) \
             .end_cell()
 
-    @staticmethod
-    def create_wallet_internal_message(destination: Address, send_mode: int = 3, value: int = 0, body: typing.Union[Cell, str] = None,
-                                       state_init: typing.Optional[StateInit] = None, **kwargs) -> WalletMessage:
-        if isinstance(body, str):
-            body = Builder()\
-                .store_uint(0, 32)\
-                .store_string(body)\
-                .end_cell()
-
-        message = Contract.create_internal_msg(dest=destination, value=value, body=body, state_init=state_init, **kwargs)
-        return WalletMessage(send_mode=send_mode, message=message)
-
-    async def send_init_external(self):
-        if not self.state_init:
-            raise ContractError('contract does not have state_init attribute')
-        if 'private_key' not in self.__dict__:
-            raise WalletError('must specify wallet private key!')
-        body = self.raw_create_transfer_msg(private_key=self.private_key, seqno=0, wallet_id=self.wallet_id, messages=[])
-        return await self.send_external(state_init=self.state_init, body=body)
-
     async def raw_transfer(self, msgs: typing.List[WalletMessage], seqno_from_get_meth: bool = True):
         """
         :param msgs: list of WalletMessages. to create one call create_wallet_internal_message meth
@@ -131,7 +130,7 @@ class Wallet(Contract):
         else:
             seqno = self.seqno
         transfer_msg = self.raw_create_transfer_msg(private_key=self.private_key, seqno=seqno, wallet_id=self.wallet_id, messages=msgs)
-        print(transfer_msg)
+
         return await self.send_external(body=transfer_msg)
 
     async def transfer(self, destination: typing.Union[Address, str], amount: int, body: Cell = Cell.empty(),
@@ -140,6 +139,23 @@ class Wallet(Contract):
             destination = Address(destination)
         wallet_message = self.create_wallet_internal_message(destination=destination, value=amount, body=body, state_init=state_init)
         return await self.raw_transfer(msgs=[wallet_message])
+
+    async def get_seqno(self) -> int:
+        """
+        :return: seqno from wallet's get method
+        """
+        return (await super().run_get_method('seqno'))[0]
+
+    async def get_public_key(self) -> int:
+        """
+        :return: public key from wallet's get method
+        """
+        if self.__class__ == WalletV3R1:
+            raise Exception('WalletV3R1 doesn\'t have get_public_key get method. Use .public_key attribute')
+        return (await super().run_get_method('get_public_key'))[0]
+
+    async def deploy_via_internal(self, contract: Contract, deploy_amount: int = 0.05 * 10**9):
+        return await super().transfer(destination=contract.address, amount=deploy_amount, state_init=contract.state_init)
 
 
 class WalletV3(Wallet):
@@ -194,6 +210,28 @@ class WalletV4(Wallet):
             wallet_id = 698983191 + wc
         return WalletV4Data(seqno=0, wallet_id=wallet_id, public_key=public_key, plugins=plugins).serialize()
 
+    @staticmethod
+    def raw_create_transfer_msg(private_key: bytes, seqno: int, wallet_id: int, messages: typing.List[WalletMessage],
+                                valid_until: typing.Optional[int] = None, op_code: int = 0) -> Cell:
+        signing_message = Builder().store_uint(wallet_id, 32)
+        if seqno == 0:
+            signing_message.store_bits('1' * 32)  # bin(2**32 - 1)
+        else:
+            if valid_until is not None:
+                signing_message.store_uint(valid_until, 32)
+            else:
+                signing_message.store_uint(int(time.time()) + 60, 32)
+        signing_message.store_uint(seqno, 32)
+        signing_message.store_uint(op_code, 32)
+        for m in messages:
+            signing_message.store_cell(m.serialize())
+        signing_message = signing_message.end_cell()
+        signature = sign_message(signing_message.hash, private_key)
+        return Builder() \
+            .store_bytes(signature) \
+            .store_cell(signing_message) \
+            .end_cell()
+
     @property
     def seqno(self) -> int:
         """
@@ -220,11 +258,16 @@ class WalletV4(Wallet):
         return WalletV4Data.deserialize(self.state.data.begin_parse()).plugins
 
     async def get_plugin_list(self):
-        return (await self.provider.run_get_method(self.address, method='get_plugin_list', stack=[]))[0]
+        """
+        :return: plugins list from wallet's get method
+        """
+        return (await super().run_get_method(method='get_plugin_list', stack=[]))[0]
 
     async def is_plugin_installed(self, address: Address) -> bool:
-        return bool((await self.provider.run_get_method(self.address, method='is_plugin_installed',
-                                                        stack=[address.wc, address.hash_part]))[0])
+        """
+        :return: is plugin installed from wallet's get method
+        """
+        return bool((await super().run_get_method(method='is_plugin_installed', stack=[address.wc, address.hash_part]))[0])
 
 
 class WalletV3R1(WalletV3):

@@ -141,8 +141,6 @@ class Contract:
                             state_init: typing.Optional[StateInit] = None, body: Cell = None):
         message = self.create_external_msg(src=src, dest=self.address, import_fee=import_fee, state_init=state_init,
                                            body=body)
-        print(message)
-        print(self.address, state_init)
         return await self.provider.raw_send_message(message.serialize().to_boc())
 
     async def send_init_external(self):
