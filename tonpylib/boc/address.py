@@ -4,6 +4,7 @@ import base64
 import binascii
 
 from ..crypto.crc import crc16
+from .cell import Cell
 
 
 class AddressError(BaseException):
@@ -18,10 +19,13 @@ class Address:
         """
         self.wc: int = None
         self.hash_part: bytes = None
+        self.is_bounceable = False
+        self.is_test_only = False
 
         if isinstance(address, tuple):
             # Address((-1, b'\x11\x01\xff...'))
             self.wc = address[0]
+            assert isinstance(address[1], bytes), 'expected bytes addressnhash part'
             self.hash_part = address[1]
             return
         if isinstance(address, self.__class__):
@@ -48,6 +52,12 @@ class Address:
     def is_b64(self, addr: str) -> bool:
         try:
             decoded = base64.urlsafe_b64decode(addr)
+            tag = decoded[0]
+            if tag & 0x80:  # test flag
+                self.is_test_only = True
+                tag ^= 0x80
+            if tag == 0x11:  # bounceable
+                self.is_bounceable = True
             self.wc = int.from_bytes(decoded[1:2], 'big', signed=True)
             self.hash_part = decoded[2:34]
             if decoded[34:] != crc16(decoded[:34]):
@@ -85,6 +95,14 @@ class Address:
 
     def to_tl_account_id(self) -> dict:
         return {'workchain': self.wc, 'id': self.hash_part.hex()}
+
+    def to_cell(self) -> Cell:
+        from .builder import Builder
+        return Builder()\
+            .store_bits('100')\
+            .store_int(self.wc, 8)\
+            .store_bytes(self.hash_part)\
+            .end_cell()
 
     @classmethod
     def from_tonsdk_address(cls, address):
