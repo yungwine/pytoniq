@@ -439,9 +439,8 @@ class ShardAccounts(TlbScheme):
     """
     _ (HashmapAugE 256 ShardAccount DepthBalanceInfo) = ShardAccounts;
     """
-    @classmethod
-    def serialize(cls, *args):
-        pass
+    def serialize(self, *args):
+        ...
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):

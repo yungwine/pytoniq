@@ -1,12 +1,6 @@
 """
 This is quite an advanced level, so it is highly recommended that you first become familiar with https://docs.ton.org/tvm.pdf 3.1.2 - 3.1.7
 """
-import hashlib
-import typing
-
-from ..tl.block import BlockId, BlockIdExt
-from ..crypto.signature import verify_sign
-from .tvm_bitarray import TvmBitarray
 
 
 class CellTypes:

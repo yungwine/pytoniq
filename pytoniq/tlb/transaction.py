@@ -160,7 +160,7 @@ class CommonMsgInfo(TlbScheme):
         tag = cell_slice.preload_bit()
         if not tag:  # 0
             return InternalMsgInfo.deserialize(cell_slice)
-        tag = cell_slice.preload_bits(2)
+        tag = cell_slice.preload_bits(2).to01()
         if tag == '10':
             return ExternalMsgInfo.deserialize(cell_slice)
         # 11
@@ -246,7 +246,7 @@ class ExternalMsgInfo(CommonMsgInfo):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
-        tag = cell_slice.load_bits(2)
+        tag = cell_slice.load_bits(2).to01()
         if tag != '10':
             raise TransactionError(f'ExternalMsgInfo deserialization error unknown prefix tag: {tag}')
         return cls(
@@ -280,7 +280,7 @@ class ExternalOutMsgInfo(CommonMsgInfo):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
-        tag = cell_slice.load_bits(2)
+        tag = cell_slice.load_bits(2).to01()
         if tag != '11':
             raise TransactionError(f'ExternalOutMsgInfo deserialization error unknown prefix tag: {tag}')
         return cls(

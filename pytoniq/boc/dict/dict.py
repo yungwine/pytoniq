@@ -20,14 +20,6 @@ class DictError(BaseException):
 
 
 class HashMap:
-    """
-    Usage:
-        mid-level: dict = HashMap.with_address_keys().with_address_values()
-        low-level: dict = HashMap(256,
-            lambda k: Builder().store_int(hash(k)).end_cell().begin_parse().load_bits(256),
-            lambda src, dest: dest.store_uint(src, 32))
-        dict.store(address, )
-    """
 
     def __init__(self, key_size: int,
                  value_serializer: typing.Optional[typing.Callable] = None,
@@ -111,7 +103,7 @@ class HashMap:
               key_length: int,  # bits len of key
               key_deserializer: typing.Callable = None,  # func to deserialize keys
               value_deserializer: typing.Callable = None  # func to deserialize values
-              ) -> typing.Union[typing.Dict[int, NullCell], typing.Optional[dict]]:
+              ) -> typing.Optional[dict]:
 
         if dict_cell.type_ != CellTypes.ordinary:
             return None

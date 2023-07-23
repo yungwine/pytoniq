@@ -32,13 +32,11 @@ class Cell(NullCell):
         self._hashes: typing.List[bytes] = []
         self._depths: typing.List[int] = []
         self.calculate_hashes()
-        # self._level = self.get_level()
+
         self._descriptors: bytes = self.get_descriptors(self.level_mask)
         self._data_bytes: bytes = self.get_data_bytes()
-        self._max_depth = self.get_max_depth()
-        self._cell_repr: bytes = self.get_representation()
-        # self._hash = self._hashes[-1]
-        self._hash = self.calculate_representation_hash()
+
+        self._hash = self._hashes[-1]
 
     @classmethod
     def empty(cls):
@@ -85,12 +83,6 @@ class Cell(NullCell):
 
     def get_descriptors(self, lvl_mask: LevelMask = LevelMask(0)) -> bytes:
         return self.get_refs_descriptor(lvl_mask) + self.get_bits_descriptor()
-
-    def get_max_depth(self):
-        depths = [0]
-        for ref in self.refs:
-            depths.append(ref._max_depth + 1)
-        return max(depths)
 
     def get_depth(self, lvl_mask: int = 0) -> int:
         hash_index = self.level_mask.apply(lvl_mask).get_hash_index()
@@ -197,7 +189,7 @@ class Cell(NullCell):
 
     def calculate_representation_hash(self) -> bytes:
         # Hash_repr(c) := sha256(CellRepr(c))
-        return hashlib.sha256(self._cell_repr).digest()
+        return hashlib.sha256(self.get_representation()).digest()
 
     def order(self, result: dict = {}) -> dict:
         """
@@ -280,10 +272,10 @@ class Cell(NullCell):
 
     def begin_parse(self):
         from .slice import Slice
-        # TODO do we need deepcopy for refs?
         return Slice(self.bits, self.refs.copy(), self.type_)
 
     def copy(self):
+        #  TODO deepcopy?
         return Cell(self.bits.copy(), copy.deepcopy(self.refs), self.type_)
 
     def to_tonsdk_cell(self, cell_cls):

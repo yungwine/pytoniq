@@ -128,7 +128,3 @@ class WalletMessage(TlbScheme):
     @classmethod
     def deserialize(cls, *args):
         pass
-
-
-
-

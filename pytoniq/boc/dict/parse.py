@@ -5,8 +5,6 @@ from ..deserialize import NullCell
 
 from bitarray import bitarray
 
-from ...tlb.tlb import TlbScheme
-
 
 def read_arbitrary_uint(n: int, ser: bitarray) -> typing.Tuple[int, bitarray]:
     x = 0

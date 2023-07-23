@@ -1,1 +1,1 @@
-from .dict import HashMap
+from .dict import DictError, Key, HashMap

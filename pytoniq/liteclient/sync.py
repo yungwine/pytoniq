@@ -63,7 +63,6 @@ def store_blocks(data: bytes, delete_old: bool = True, key: BlockIdExt = None):
                     os.remove(os.path.join(path, f))
                     print(f)
     file_name = data[:84].hex() + '.blks'
-    print(file_name)
     with open(os.path.join(path, file_name), 'wb') as f:
         f.write(data)
     return
@@ -97,7 +96,6 @@ def choose_key_block(blk: BlockIdExt, blk_ts: int, other_blk: typing.Optional[Bl
         return blk, blk_ts
     if blk is None:
         return other_blk, other_ts
-    print(blk, blk_ts, other_blk, other_ts)
     p1 = persistent_state_ttl(blk_ts)
     p2 = persistent_state_ttl(other_ts)
     c_t = time.time()

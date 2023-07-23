@@ -7,11 +7,10 @@ class TlbError(BaseException):
 
 class TlbScheme(ABC):
     """
-    This is not the same as TlbSchema in generator.py!
+    abstract class for Tlb Schemes wrappers
     """
-    @classmethod
     @abstractmethod
-    def serialize(cls, *args): ...
+    def serialize(self, *args): ...
 
     @classmethod
     @abstractmethod

@@ -25,7 +25,7 @@ class Address:
         if isinstance(address, tuple):
             # Address((-1, b'\x11\x01\xff...'))
             self.wc = address[0]
-            assert isinstance(address[1], bytes), 'expected bytes addressnhash part'
+            assert isinstance(address[1], bytes), 'expected bytes address hash part'
             self.hash_part = address[1]
             return
         if isinstance(address, self.__class__):
@@ -107,13 +107,13 @@ class Address:
     @classmethod
     def from_tonsdk_address(cls, address):
         """
-        Usage: tonpy.Address.from_tonsdk_address(tonsdk.utils.Address('address'))
+        Usage: Address.from_tonsdk_address(tonsdk.utils.Address('address'))
         """
         return cls(address.to_string(False))
 
     def to_tonsdk_address(self, cls):
         """
-        Usage: tonpy.Address('0:33333...').to_tonsdk_address(tonsdk.utils.Address)
+        Usage: Address('0:33333...').to_tonsdk_address(tonsdk.utils.Address)
         """
         return cls(self.to_str(False))
 

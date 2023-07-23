@@ -9,7 +9,7 @@ from sympy import sympify, solve
 from bitarray import bitarray
 from bitarray.util import hex2ba
 
-from tonpylib.boc.slice import Slice
+from pytoniq.boc.slice import Slice
 
 
 class TlbGeneratorError(BaseException):

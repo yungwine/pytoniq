@@ -325,7 +325,7 @@ class LiteClient:
 
         return BlockIdExt.from_dict(result['id']), Block.deserialize(h_proof[0].begin_parse())
 
-    async def raw_get_block(self, block: BlockIdExt):
+    async def raw_get_block(self, block: BlockIdExt) -> Block:
         result = await self.liteserver_request('getBlock', {'id': block.to_dict()})
         block_id = BlockIdExt.from_dict(result['id'])
         assert block_id == block
@@ -543,9 +543,11 @@ class LiteClient:
         mode = 39  # 100111
         data = {'id': block.to_dict(), 'mode': mode, 'count': count, 'want_proof': b''}
         result = await self.liteserver_request('listBlockTransactions', data)
+        if not result['ids']:
+            return []
         transactions_ids = result['ids']
-        proof = Cell.one_from_boc(result['proof'])
         if self.trust_level <= 1:
+            proof = Cell.one_from_boc(result['proof'])
             check_block_header_proof(proof[0], block.root_hash)
             acc_block = Block.deserialize(proof[0].begin_parse()).extra.account_blocks[0]
 
@@ -569,6 +571,8 @@ class LiteClient:
         result = await self.liteserver_request('listBlockTransactionsExt', data)
 
         transactions_cells = Cell.from_boc(result['transactions'])
+        if not result['transactions']:
+            return []
         if self.trust_level <= 1:
             proof = Cell.one_from_boc(result['proof'])
             check_block_header_proof(proof[0], block.root_hash)
@@ -582,6 +586,7 @@ class LiteClient:
             if self.trust_level <= 1:
                 prunned_tr_cell = acc_block.get(int(transaction.account_addr, 16)).transactions[0].get(transaction.lt)
                 assert prunned_tr_cell.get_hash(0) == tr_root.get_hash(0)
+            # transaction.account = Address((block.workchain, bytes.fromhex(transaction.account_addr)))
             tr_result.append(transaction)
 
         return tr_result
@@ -591,7 +596,7 @@ class LiteClient:
         :param known_block: block you trust
         :param target_block: block you want to prove
         :param return_best_key_block: if true the key block with big ttl will be returned
-        :return: (bool, BlockIdExt) - is completed proof, last trusted block
+        :return: (bool, BlockIdExt, BlockIdExt, int) - is completed proof, last trusted block, best key block (see documentation), and best key block gen_utime
         """
         mode = 0
 
@@ -625,9 +630,8 @@ class LiteClient:
 
             else:  # blockLinkBack
                 assert last_trusted == BlockIdExt.from_dict(step['from'])
+                to_block = BlockIdExt.from_dict(step['to'])
                 if step['to_key_block']:
-                    to_block = BlockIdExt.from_dict(step['to'])
-
                     dest_proof = Cell.one_from_boc(step['dest_proof'])
                     state_proof = Cell.one_from_boc(step['state_proof'])
                     proof = Cell.one_from_boc(step['proof'])
@@ -643,9 +647,7 @@ class LiteClient:
                     assert to_block.root_hash == last_key.root_hash
                     last_trusted = to_block
                 else:
-                    to_block = BlockIdExt.from_dict(step['to'])
-
-                    dest_proof = Cell.one_from_boc(step['dest_proof'])
+                    dest_proof = Cell.one_from_boc(step['dest_proof'])  # ?
                     state_proof = Cell.one_from_boc(step['state_proof'])
                     proof = Cell.one_from_boc(step['proof'])
 
