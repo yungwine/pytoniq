@@ -42,7 +42,7 @@ def check_block_header_proof(root_cell: "Cell", block_hash: bytes, store_state_h
 
 def check_shard_proof(shard_proof: bytes, blk: BlockIdExt, shrd_blk: BlockIdExt):
 
-    if blk.root_hash == shrd_blk.root_hash:
+    if blk == shrd_blk:
         return
     if blk.workchain != -1:
         raise ProofError('expected masterchain block')
@@ -81,7 +81,7 @@ def check_shard_proof(shard_proof: bytes, blk: BlockIdExt, shrd_blk: BlockIdExt)
     if shard_descr.root_hash != shrd_blk.root_hash:
         raise ProofError('shard block actual and expected hashes mismatch')
 
-    return
+    return shard_descr
 
 
 def check_account_proof(proof: bytes, shrd_blk: BlockIdExt, address: "Address", account_state_root: "Cell", return_account_descr: bool = False):
@@ -90,7 +90,7 @@ def check_account_proof(proof: bytes, shrd_blk: BlockIdExt, address: "Address", 
     if len(proof_cells) != 2:
         raise ProofError('expected 2 root cells in account state proof')
 
-    state_cell = proof_cells[1]  # merkle proof type Cell
+    state_cell = proof_cells[1]
 
     state_hash = check_block_header_proof(proof_cells[0][0], shrd_blk.root_hash, True)
 

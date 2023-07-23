@@ -27,18 +27,17 @@ class Cell(NullCell):
         self.type_: int = cell_type
         self.is_exotic: bool = cell_type != -1
         super().__init__(bits, refs, cell_type)
-        if self.is_exotic:
-            ...
 
-        """ fast but takes a lot of memory"""
         self.level_mask: LevelMask = self.resolve_mask()
         self._hashes: typing.List[bytes] = []
         self._depths: typing.List[int] = []
         self.calculate_hashes()
         # self._level = self.get_level()
-        self._descriptors: bytes = self.get_descriptors()
+        self._descriptors: bytes = self.get_descriptors(self.level_mask)
         self._data_bytes: bytes = self.get_data_bytes()
+        self._max_depth = self.get_max_depth()
         self._cell_repr: bytes = self.get_representation()
+        # self._hash = self._hashes[-1]
         self._hash = self.calculate_representation_hash()
 
     @classmethod
@@ -53,7 +52,7 @@ class Cell(NullCell):
                 mask |= r.level_mask.mask
             return LevelMask(mask)
         elif self.type_ == CellTypes.pruned_branch:
-            # pruned branch doesn't have refs
+            # prunned branch doesn't have refs
             if self.refs:
                 raise CellError('Pruned branch must not has refs')
             return LevelMask(int(self.bits[8:16].to01(), 2))
@@ -61,7 +60,7 @@ class Cell(NullCell):
             # merkle proof cell has exactly one ref
             return LevelMask(self.refs[0].level_mask.mask >> 1)
         elif self.type_ == CellTypes.merkle_update:
-            # merkle update cell has 2 refs
+            # merkle update cell has exactly 2 refs
             return LevelMask((self.refs[0].level_mask.mask | self.refs[1].level_mask.mask) >> 1)
         elif self.type_ == CellTypes.library_ref:
             return LevelMask(0)
@@ -87,6 +86,12 @@ class Cell(NullCell):
     def get_descriptors(self, lvl_mask: LevelMask = LevelMask(0)) -> bytes:
         return self.get_refs_descriptor(lvl_mask) + self.get_bits_descriptor()
 
+    def get_max_depth(self):
+        depths = [0]
+        for ref in self.refs:
+            depths.append(ref._max_depth + 1)
+        return max(depths)
+
     def get_depth(self, lvl_mask: int = 0) -> int:
         hash_index = self.level_mask.apply(lvl_mask).get_hash_index()
         if self.type_ == CellTypes.pruned_branch:
@@ -96,10 +101,6 @@ class Cell(NullCell):
                 return int.from_bytes(self.get_data_bytes()[off: off + 2], 'big')
             hash_index = 0
         return self._depths[hash_index]
-        # depths = [0]
-        # for ref in self.refs:
-        #     depths.append(ref.get_depth() + 1)
-        # return max(depths)
 
     def get_data_bytes(self) -> bytes:
         if isinstance(self.bits, TvmBitarray):
@@ -113,13 +114,16 @@ class Cell(NullCell):
         return result.tobytes()
 
     def get_representation(self) -> bytes:
-        # CellRepr(c) = CellRepr∞ (c) = d1d2 + data + (depth(r_i) + hash(r_i) for all i)
+        # CellRepr(c) = CellRepr∞ (c) = d1d2 + data + depth(r_i) for all i + hash(r_i) for all i
         descs = self._descriptors
         data = self._data_bytes
         result = descs + data
+        depths = b''
+        hashes = b''
         for ref in self.refs:
-            result += ref.get_depth().to_bytes(2, 'big') + ref.hash
-        return result
+            depths += ref._max_depth.to_bytes(2, 'big')
+            hashes += ref.hash
+        return result + depths + hashes
 
     @property
     def hash(self) -> bytes:
@@ -149,11 +153,10 @@ class Cell(NullCell):
         hash_index_offset = total_hash_count - hash_count
         hash_index = 0
         level = self.level_mask.get_level()
-        # print([self, self.type_, level, total_hash_count, hash_index_offset])
         for li in range(0, level + 1):
             if not self.level_mask.is_significant(li):
                 continue
-            if li < hash_index_offset:  # заменить на range(offset level+1)
+            if li < hash_index_offset:  # change to range(offset level+1)
                 hash_index += 1
                 continue
             dsc = self.get_descriptors(self.level_mask.apply(li))
@@ -166,7 +169,8 @@ class Cell(NullCell):
             else:
                 if li == 0 or self.type_ == CellTypes.pruned_branch:
                     raise CellError('not pruned or 0')
-                hash_.update(self._hashes[-1])  # ?
+                off = hash_index - hash_index_offset - 1
+                hash_.update(self._hashes[off])
             depth = 0
             for r in self.refs:
                 if self.type_ in (CellTypes.merkle_proof, CellTypes.merkle_update):

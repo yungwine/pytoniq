@@ -154,7 +154,7 @@ class Boc:
         if result['has_idx']:
             if data_len - i < offset_bytes * result['cells_num']:
                 raise BocError("Not enough bytes for index encoding")
-            end = i + result['cells_num'] * size_bytes
+            end = i + result['cells_num'] * offset_bytes
             result['index'] = [bytes_to_uint(data[j: j + offset_bytes]) for j in range(i, end,  offset_bytes)]
             i = end
 
