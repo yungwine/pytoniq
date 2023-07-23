@@ -23,6 +23,41 @@ class WalletError(ContractError):
 
 
 class Wallet(Contract):
+    @classmethod
+    async def from_private_key(cls, *args, **kwargs): ...
+
+    @staticmethod
+    def raw_create_transfer_msg(*args, **kwargs): ...
+
+    @classmethod
+    async def from_mnemonic(cls, *args, **kwargs): ...
+
+    @classmethod
+    async def create(cls, *args, **kwargs): ...
+
+    @staticmethod
+    def create_wallet_internal_message(destination: Address, send_mode: int = 3, value: int = 0, body: typing.Union[Cell, str] = None,
+                                       state_init: typing.Optional[StateInit] = None, **kwargs) -> WalletMessage:
+        if isinstance(body, str):
+            body = Builder()\
+                .store_uint(0, 32)\
+                .store_string(body)\
+                .end_cell()
+
+        message = Contract.create_internal_msg(dest=destination, value=value, body=body, state_init=state_init, **kwargs)
+        return WalletMessage(send_mode=send_mode, message=message)
+
+    async def send_init_external(self): ...
+
+    async def raw_transfer(self, *args, **kwargs): ...
+
+    async def transfer(self, *args, **kwargs): ...
+
+
+class BaseWallet(Wallet):
+    """
+    class for user wallets such as v4r2, v3r2, etc.
+    """
 
     @classmethod
     async def from_private_key(cls, provider: LiteClient, private_key: bytes, wc: int = 0,
@@ -39,9 +74,6 @@ class Wallet(Contract):
                                               private_key=private_key)
         else:
             raise Exception(f'Wallet version {version} does not supported')
-
-    @staticmethod
-    def raw_create_transfer_msg(*args, **kwargs): ...
 
     @classmethod
     async def from_mnemonic(cls, provider: LiteClient, mnemonics: typing.Union[list, str], wc: int = 0,
@@ -64,36 +96,6 @@ class Wallet(Contract):
         """
         mnemo = mnemonic_new(24)
         return mnemo, await cls.from_mnemonic(provider, mnemo, wc, wallet_id, version)
-
-    @staticmethod
-    def create_wallet_internal_message(destination: Address, send_mode: int = 3, value: int = 0, body: typing.Union[Cell, str] = None,
-                                       state_init: typing.Optional[StateInit] = None, **kwargs) -> WalletMessage:
-        if isinstance(body, str):
-            body = Builder()\
-                .store_uint(0, 32)\
-                .store_string(body)\
-                .end_cell()
-
-        message = Contract.create_internal_msg(dest=destination, value=value, body=body, state_init=state_init, **kwargs)
-        return WalletMessage(send_mode=send_mode, message=message)
-
-    async def send_init_external(self):
-        if not self.state_init:
-            raise ContractError('contract does not have state_init attribute')
-        if 'private_key' not in self.__dict__:
-            raise WalletError('must specify wallet private key!')
-        body = self.raw_create_transfer_msg(private_key=self.private_key, seqno=0, wallet_id=self.wallet_id, messages=[])
-        return await self.send_external(state_init=self.state_init, body=body)
-
-    async def raw_transfer(self, *args, **kwargs): ...
-
-    async def transfer(self, *args, **kwargs): ...
-
-
-class BaseWallet(Wallet):
-    """
-    class for user wallets such as v4r2, v3r2, etc.
-    """
 
     @staticmethod
     def raw_create_transfer_msg(private_key: bytes, seqno: int, wallet_id: int, messages: typing.List[WalletMessage],
@@ -140,6 +142,14 @@ class BaseWallet(Wallet):
         wallet_message = self.create_wallet_internal_message(destination=destination, value=amount, body=body, state_init=state_init)
         return await self.raw_transfer(msgs=[wallet_message])
 
+    async def send_init_external(self):
+        if not self.state_init:
+            raise ContractError('contract does not have state_init attribute')
+        if 'private_key' not in self.__dict__:
+            raise WalletError('must specify wallet private key!')
+        body = self.raw_create_transfer_msg(private_key=self.private_key, seqno=0, wallet_id=self.wallet_id, messages=[])
+        return await self.send_external(state_init=self.state_init, body=body)
+
     async def get_seqno(self) -> int:
         """
         :return: seqno from wallet's get method
@@ -154,11 +164,11 @@ class BaseWallet(Wallet):
             raise Exception('WalletV3R1 doesn\'t have get_public_key get method. Use .public_key attribute')
         return (await super().run_get_method('get_public_key'))[0]
 
-    async def deploy_via_internal(self, contract: Contract, deploy_amount: int = 0.05 * 10**9):
-        return await super().transfer(destination=contract.address, amount=deploy_amount, state_init=contract.state_init)
+    async def deploy_via_internal(self, contract: Contract, deploy_amount: int = int(0.05 * 10**9)):
+        return await self.transfer(destination=contract.address, amount=deploy_amount, state_init=contract.state_init)
 
 
-class WalletV3(Wallet):
+class WalletV3(BaseWallet):
 
     @classmethod
     async def from_code_and_data(cls, provider: LiteClient, code: Cell, public_key: bytes, wc: int = 0,
@@ -195,7 +205,7 @@ class WalletV3(Wallet):
         return WalletV3Data.deserialize(self.state.data.begin_parse()).public_key
 
 
-class WalletV4(Wallet):
+class WalletV4(BaseWallet):
 
     @classmethod
     async def from_code_and_data(cls, provider: LiteClient, code: Cell, public_key: bytes, wc: int = 0,
@@ -279,6 +289,15 @@ class WalletV3R1(WalletV3):
                                                 wallet_id=wallet_id, **kwargs)
 
     @classmethod
+    async def from_mnemonic(cls, provider: LiteClient, mnemonics: typing.Union[list, str], wc: int = 0,
+                            wallet_id: typing.Optional[int] = None):
+        if isinstance(mnemonics, str):
+            mnemonics = mnemonics.split()
+        assert mnemonic_is_valid(mnemonics), 'mnemonics are invalid!'
+        _, private_key = mnemonic_to_private_key(mnemonics)
+        return await super().from_private_key(provider, private_key, wc, wallet_id, 'v3r1')
+
+    @classmethod
     async def create(cls, provider: LiteClient, wc: int = 0, wallet_id: typing.Optional[int] = None):
         """
         :param provider: provider
@@ -296,6 +315,15 @@ class WalletV3R2(WalletV3):
                         wallet_id: typing.Optional[int] = None, **kwargs):
         return await super().from_code_and_data(provider=provider, code=WALLET_V3_R2_CODE, public_key=public_key, wc=wc,
                                                 wallet_id=wallet_id, **kwargs)
+
+    @classmethod
+    async def from_mnemonic(cls, provider: LiteClient, mnemonics: typing.Union[list, str], wc: int = 0,
+                            wallet_id: typing.Optional[int] = None):
+        if isinstance(mnemonics, str):
+            mnemonics = mnemonics.split()
+        assert mnemonic_is_valid(mnemonics), 'mnemonics are invalid!'
+        _, private_key = mnemonic_to_private_key(mnemonics)
+        return await super().from_private_key(provider, private_key, wc, wallet_id, 'v3r2')
 
     @classmethod
     async def create(cls, provider: LiteClient, wc: int = 0, wallet_id: typing.Optional[int] = None):
@@ -317,6 +345,15 @@ class WalletV4R2(WalletV4):
                                                 wallet_id=wallet_id, **kwargs)
 
     @classmethod
+    async def from_mnemonic(cls, provider: LiteClient, mnemonics: typing.Union[list, str], wc: int = 0,
+                            wallet_id: typing.Optional[int] = None):
+        if isinstance(mnemonics, str):
+            mnemonics = mnemonics.split()
+        assert mnemonic_is_valid(mnemonics), 'mnemonics are invalid!'
+        _, private_key = mnemonic_to_private_key(mnemonics)
+        return await super().from_private_key(provider, private_key, wc, wallet_id, 'v4r2')
+
+    @classmethod
     async def create(cls, provider: LiteClient, wc: int = 0, wallet_id: typing.Optional[int] = None):
         """
         :param provider: provider
@@ -325,4 +362,3 @@ class WalletV4R2(WalletV4):
         :return: mnemonics and Wallet instance of provided version
         """
         return super().create(provider=provider, wc=wc, wallet_id=wallet_id, version='v4r2')
-

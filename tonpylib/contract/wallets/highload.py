@@ -20,7 +20,7 @@ class HighloadWallet(Wallet):
 
     @classmethod
     async def from_data(cls, provider: LiteClient, public_key: bytes, wc: int = 0,
-                        wallet_id: typing.Optional[int] = None, **kwargs):
+                        wallet_id: typing.Optional[int] = None, **kwargs) -> "HighloadWallet":
         data = cls.create_data_cell(public_key, wallet_id, wc)
         return await super().from_code_and_data(provider, wc, HIGHLOAD_WALLET_CODE, data, **kwargs)
 
@@ -29,10 +29,38 @@ class HighloadWallet(Wallet):
                          old_queries: typing.Optional[dict] = None) -> Cell:
         if wallet_id is None:
             wallet_id = 698983191 + wc
-        return HighloadWalletData(wallet_id=wallet_id, public_key=public_key, old_queries=old_queries).serialize()
+        return HighloadWalletData(wallet_id=wallet_id, public_key=public_key, last_cleaned=0, old_queries=old_queries).serialize()
+
+    @classmethod
+    async def from_private_key(cls, provider: LiteClient, private_key: bytes, wc: int = 0,
+                               wallet_id: typing.Optional[int] = None):
+        public_key = private_key_to_public_key(private_key)
+        return await cls.from_data(provider=provider, wc=wc, public_key=public_key, wallet_id=wallet_id,
+                                   private_key=private_key)
+
+    @classmethod
+    async def from_mnemonic(cls, provider: LiteClient, mnemonics: typing.Union[list, str], wc: int = 0,
+                            wallet_id: typing.Optional[int] = None):
+        if isinstance(mnemonics, str):
+            mnemonics = mnemonics.split()
+        assert mnemonic_is_valid(mnemonics), 'mnemonics are invalid!'
+        _, private_key = mnemonic_to_private_key(mnemonics)
+        return await cls.from_private_key(provider, private_key, wc, wallet_id)
+
+    @classmethod
+    async def create(cls, provider: LiteClient, wc: int = 0, wallet_id: typing.Optional[int] = None):
+        """
+        :param provider: provider
+        :param wc: wallet workchain
+        :param wallet_id: subwallet_id
+        :return: mnemonics and Wallet instance of provided version
+        """
+        mnemo = mnemonic_new(24)
+        return mnemo, await cls.from_mnemonic(provider, mnemo, wc, wallet_id)
 
     @staticmethod
-    def raw_create_transfer_msg(private_key: bytes, wallet_id: int, messages: typing.List[WalletMessage], query_id: int = 0, offset: int = 7200) -> Cell:
+    def raw_create_transfer_msg(private_key: bytes, wallet_id: int, messages: typing.List[WalletMessage],
+                                query_id: int = 0, offset: int = 7200) -> Cell:
 
         signing_message = Builder().store_uint(wallet_id, 32)
         if not query_id:
@@ -40,7 +68,10 @@ class HighloadWallet(Wallet):
         else:
             signing_message.store_uint(query_id, 64)
 
-        messages_dict = HashMap(key_size=16, value_serializer=WalletMessage.serialize)
+        def value_serializer(src, dest):
+            dest.store_cell(src.serialize())
+
+        messages_dict = HashMap(key_size=16, value_serializer=value_serializer)
 
         for i in range(len(messages)):
             messages_dict.set_int_key(i, messages[i])
@@ -56,25 +87,43 @@ class HighloadWallet(Wallet):
 
     async def raw_transfer(self, msgs: typing.List[WalletMessage], query_id: int = 0, offset: int = 7200):
         """
+        :param query_id: query id
+        :param offset: if query id is 0 it will be generated as current_time + offset
         :param msgs: list of WalletMessages. to create one call create_wallet_internal_message meth
         """
-        assert len(msgs) <= 4, 'for common wallet maximum messages amount is 4'
+        assert len(msgs) <= 254, 'for highload wallet maximum messages amount is 254'
         if 'private_key' not in self.__dict__:
             raise WalletError('must specify wallet private key!')
 
-        transfer_msg = self.raw_create_transfer_msg(private_key=self.private_key, wallet_id=self.wallet_id, query_id=query_id, offset=offset, messages=msgs)
+        transfer_msg = self.raw_create_transfer_msg(private_key=self.private_key, wallet_id=self.wallet_id,
+                                                    query_id=query_id, offset=offset, messages=msgs)
 
         return await self.send_external(body=transfer_msg)
 
-    async def transfer(self, destinations: typing.Union[Address, str], amounts: int, bodies: Cell = Cell.empty(),
-                       state_inits: StateInit = None):
+    async def transfer(self, destinations: typing.Union[Address, str], amounts: int, bodies: typing.List[Cell],
+                       state_inits: typing.List[StateInit] = None):
         result_msgs = []
         for i in range(len(destinations)):
             destination = destinations[i]
+            body = bodies[i]
+            if body is None:
+                body = Cell.empty()
+
             if isinstance(destination, str):
                 destination = Address(destination)
-            result_msgs.append(self.create_wallet_internal_message(destination=destination, value=amounts[i], body=bodies[i], state_init=state_inits[i]))
+
+            result_msgs.append(
+                self.create_wallet_internal_message(destination=destination, value=amounts[i], body=body,
+                                                    state_init=state_inits[i]))
         return await self.raw_transfer(msgs=result_msgs)
+
+    async def send_init_external(self):
+        if not self.state_init:
+            raise ContractError('contract does not have state_init attribute')
+        if 'private_key' not in self.__dict__:
+            raise WalletError('must specify wallet private key!')
+        body = self.raw_create_transfer_msg(private_key=self.private_key, wallet_id=self.wallet_id, messages=[])
+        return await self.send_external(state_init=self.state_init, body=body)
 
     @property
     def wallet_id(self) -> int:
@@ -84,7 +133,7 @@ class HighloadWallet(Wallet):
         return HighloadWalletData.deserialize(self.state.data.begin_parse()).wallet_id
 
     @property
-    def last_cleaned(self) -> bytes:
+    def last_cleaned(self) -> int:
         """
         :return: last_cleaned taken from contract data
         """
@@ -98,7 +147,7 @@ class HighloadWallet(Wallet):
         return HighloadWalletData.deserialize(self.state.data.begin_parse()).public_key
 
     @property
-    def old_queries(self) -> bytes:
+    def old_queries(self) -> dict:
         """
         :return: old_queries taken from contract data
         """
