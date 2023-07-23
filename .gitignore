@@ -162,3 +162,4 @@ cython_debug/
 /test/primitives/usr/
 .idea
 /tests/contracts/wallets/priv_key.py
+/pytoniq/tlb/code_generator.py
