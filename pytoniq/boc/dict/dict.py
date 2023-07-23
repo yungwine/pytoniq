@@ -30,12 +30,14 @@ class HashMap:
     """
 
     def __init__(self, key_size: int,
-                 # key_serializer: typing.Optional[typing.Callable],
-                 value_serializer: typing.Optional[typing.Callable] = None
+                 value_serializer: typing.Optional[typing.Callable] = None,
+                 map_: dict = None,
                  ):
 
         self.size = key_size
-        self.map: dict = {}
+        if map_ is None:
+            map_: dict = {}
+        self.map = map_
         # self.key_serializer: typing.Callable = key_serializer
         self.value_serializer: typing.Callable = value_serializer
 
@@ -88,10 +90,13 @@ class HashMap:
         self.value_serializer = lambda src, dest: dest.store_coins(src)
         return self
 
-    def serialize(self) -> Cell:
+    def serialize(self) -> typing.Optional[Cell]:
         if not self.value_serializer:
             self.value_serializer = lambda src, dest: dest.store_cell(src)
-        return serialize_dict(self.map, self.size, self.value_serializer).end_cell()
+        if len(self.map):
+            return serialize_dict(self.map, self.size, self.value_serializer).end_cell()
+        else:
+            return None
 
     @classmethod
     def from_cell(cls, dict_cell: Cell, key_length: int) -> "HashMap":

@@ -3,9 +3,14 @@ import hashlib
 import logging
 import os
 import asyncio
+import socket
+import struct
 import typing
 
+import requests
+
 from .sync import persistent_state_ttl, choose_key_block, sync
+from .utils import init_mainnet_block, init_testnet_block
 from ..boc import Slice, Cell, Builder
 from ..proof.check_proof import check_block_header_proof, check_shard_proof, check_account_proof, check_proof, \
     check_block_signatures, compute_validator_set
@@ -762,3 +767,32 @@ class LiteClient:
         result = await self.liteserver_request('sendMessage', data)
         print(result)
         return result['status']
+
+    @classmethod
+    def from_config(cls, config: dict, ls_i: int = 0, trust_level: int = 2):
+        ls = config['liteservers'][ls_i]
+        init_block = config['validator']['init_block']
+        init_block['file_hash'] = base64.b64decode(init_block['file_hash']).hex()
+        init_block['root_hash'] = base64.b64decode(init_block['root_hash']).hex()
+        init_block = BlockIdExt.from_dict(init_block)
+        if init_block != init_mainnet_block and init_block != init_testnet_block and not trust_level:
+            # logger TODO
+            print('unknown init block found! please, check its hash to trust it')
+
+        return cls(
+            host=socket.inet_ntoa(struct.pack('!L', ls['ip'])),
+            port=ls['port'],
+            server_pub_key=ls['id']['key'],
+            trust_level=trust_level,
+            init_key_block=init_block
+        )
+
+    @classmethod
+    def from_mainnet_config(cls, ls_i: int = 0, trust_level: int = 0):
+        config = requests.get('https://ton.org/global-config.json').json()
+        return cls.from_config(config, ls_i, trust_level)
+
+    @classmethod
+    def from_testnet_config(cls, ls_i: int = 0, trust_level: int = 0):
+        config = requests.get('https://ton.org/testnet-global.config.json').json()
+        return cls.from_config(config, ls_i, trust_level)
