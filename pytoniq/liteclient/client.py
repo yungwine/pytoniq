@@ -204,7 +204,6 @@ class LiteClient:
             ping_query, qid = self.get_ping_query()
             pong = await self.send(ping_query, qid)
             await pong
-            print('passed!')
 
     async def liteserver_request(self, tl_schema_name: str, data: dict) -> dict:
         # while not self.inited:
@@ -244,7 +243,7 @@ class LiteClient:
             shard_result[k] = BlockIdExt(workchain=k, seqno=shard.seq_no, shard=None, root_hash=shard.root_hash,
                                          file_hash=shard.file_hash)
         self.last_shard_blocks = shard_result
-        print('updated!', self.last_mc_block, self.last_shard_blocks)
+        # print('updated!', self.last_mc_block, self.last_shard_blocks)
 
     async def block_updater(self):
         if self.last_mc_block is None:
@@ -617,9 +616,16 @@ class LiteClient:
                 check_block_header_proof(dest_proof[0], to_block.root_hash)
 
                 block = Block.deserialize(config_proof[0].begin_parse())
+                dest_block = Block.deserialize(dest_proof[0].begin_parse())
+                if self.last_key_block is None or block.info.seqno > self.last_key_block.seqno:
+                    self.last_key_block = last_trusted
+                if step['to_key_block']:
+                    if self.last_key_block is None or dest_block.info.seqno > self.last_key_block.seqno:
+                        self.last_key_block = to_block
                 if return_best_key_block:
+                    best_key, best_key_ts = choose_key_block(best_key, best_key_ts, last_trusted, block.info.gen_utime)
                     if step['to_key_block']:
-                        best_key, best_key_ts = choose_key_block(best_key, best_key_ts, to_block, block.info.gen_utime)
+                        best_key, best_key_ts = choose_key_block(best_key, best_key_ts, to_block, dest_block.info.gen_utime)
 
                 param_34 = ConfigParam34.deserialize(block.extra.custom.config.config[34])
                 param_28 = ConfigParam28.deserialize(block.extra.custom.config.config[28])
@@ -645,6 +651,8 @@ class LiteClient:
                     last_key = state.custom.last_key_block
                     check_block_header_proof(dest_proof[0], last_key.root_hash)
                     assert to_block.root_hash == last_key.root_hash
+                    if self.last_key_block is None or to_block.seqno > self.last_key_block.seqno:
+                        self.last_key_block = to_block
                     last_trusted = to_block
                 else:
                     dest_proof = Cell.one_from_boc(step['dest_proof'])  # ?
@@ -664,6 +672,7 @@ class LiteClient:
         return last_trusted == target_block, last_trusted, best_key, best_key_ts
 
     async def get_mc_block_proof(self, known_block: BlockIdExt, target_block: BlockIdExt, return_best_key_block=False):
+        print('from: ', known_block)  # debug
         print('target:', target_block)  # debug
         last_proved = known_block
         best_key = None
@@ -767,7 +776,6 @@ class LiteClient:
         data = {'body': message}
 
         result = await self.liteserver_request('sendMessage', data)
-        print(result)
         return result['status']
 
     @classmethod
@@ -777,7 +785,7 @@ class LiteClient:
         init_block['file_hash'] = base64.b64decode(init_block['file_hash']).hex()
         init_block['root_hash'] = base64.b64decode(init_block['root_hash']).hex()
         init_block = BlockIdExt.from_dict(init_block)
-        if init_block != init_mainnet_block and init_block != init_testnet_block and not trust_level:
+        if not trust_level and init_block != init_mainnet_block and init_block != init_testnet_block:
             # logger TODO
             print('unknown init block found! please, check its hash to trust it')
 

@@ -1,4 +1,4 @@
-from .block import BlockError, Block, BlockInfo, BlockExtra, ShardState, McStateExtra, ShardAccount, ShardStateUnsplit, CurrencyCollection, ValueFlow
+from .block import BlockError, Block, BlockInfo, BlockExtra, ShardState, McStateExtra, ShardAccount, ShardStateUnsplit, CurrencyCollection, ValueFlow, ShardAccounts, ShardIdent, ShardDescr
 from .account import AccountError, Account, AccountState, SimpleAccount, SimpleAccountState, StorageInfo, AccountStorage, StateInit
 from .config import ConfigError, ConfigParam
 from .tlb import TlbError, TlbScheme
