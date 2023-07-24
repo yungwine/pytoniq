@@ -121,8 +121,8 @@ class ShardIdent(TlbScheme):
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
-        tag = cell_slice.load_bits(2)
-        if tag.to01() != '00':
+        tag = cell_slice.load_bits(2).to01()
+        if tag != '00':
             raise BlockError(f'ShardIdent deserialization error: unknown prefix: {tag}')
         return cls(cell_slice)
 
@@ -152,15 +152,15 @@ class BlkMasterInfo(TlbScheme):
     master_info$_ master:ExtBlkRef = BlkMasterInfo;
     """
 
-    def __init__(self, cell_slice: Slice):
-        self.master = ExtBlkRef.deserialize(cell_slice)
+    def __init__(self, master: "ExtBlkRef"):
+        self.master = master
 
     @classmethod
     def serialize(cls, *args): ...
 
     @classmethod
     def deserialize(cls, cell_slice: Slice):
-        return cls(cell_slice)
+        return cls(ExtBlkRef.deserialize(cell_slice))
 
 
 class BlkPrevInfo(TlbScheme):
@@ -421,12 +421,20 @@ class ShardStateUnsplit(TlbScheme):
         # accounts = cell_slice.load_ref()
         accounts = ShardAccounts.deserialize(cell_slice.load_ref().begin_parse())
         ref = cell_slice.load_ref().begin_parse()
-        overload_history = ref.load_uint(64)
-        underload_history = ref.load_uint(64)
-        total_balance = CurrencyCollection.deserialize(ref)
-        total_validator_fees = CurrencyCollection.deserialize(ref)
-        libraries = ref.load_dict(256)
-        master_ref = BlkMasterInfo.deserialize(ref) if ref.load_bit() else None
+        overload_history = None
+        underload_history = None
+        total_balance = None
+        total_validator_fees = None
+        libraries = None
+        master_ref = None
+        if not ref.is_special():
+            overload_history = ref.load_uint(64)
+            underload_history = ref.load_uint(64)
+            total_balance = CurrencyCollection.deserialize(ref)
+            # print(total_balance, ref)
+            total_validator_fees = CurrencyCollection.deserialize(ref)
+            libraries = ref.load_dict(256)
+            master_ref = BlkMasterInfo.deserialize(ref) if ref.load_bit() else None
         custom = McStateExtra.deserialize(cell_slice.load_ref().begin_parse()) if cell_slice.load_bit() else None
 
         return cls(global_id, shard_id, seq_no, vert_seq_no, gen_utime,
