@@ -12,7 +12,13 @@ some popular contracts wrappers.
 [GitBook](https://yungwine.gitbook.io/pytoniq-doc/)
 
 ## Examples
-You can find them in `examples/` directory.
+You can find them in the [examples](examples/) folder.
+
+## Blockstore
+The library can prove all data it receives from a Liteserver (Learn about trust levels [here](https://yungwine.gitbook.io/pytoniq-doc/liteclient/trust-levels)).
+If you want to use `LiteClient` with the zero trust level, at the first time run library will prove block link from the `init_block` to the last masterchain block.
+Last proved blocks will be stored in the `.blockstore` folder. The file data contains `ttl` and `gen_utime` of the last synced key block, its data serialized according to the `BlockIdExt` TL scheme (but in big–endian), last synced masterchain block data. Filename 
+Files with key block, which `ttl` has been expired will be deleted.
 
 ## General usage examples
 

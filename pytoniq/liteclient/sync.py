@@ -75,7 +75,7 @@ def store_blocks(data: bytes, delete_old: bool = True, init_block_hash: str = No
                 ttl = int(f[:8], 16)
                 if ttl < time.time():
                     os.remove(os.path.join(path, f))
-    file_name = data[:84].hex() + init_block_hash + '.blks'
+    file_name = data[:88].hex() + init_block_hash + '.blks'
     with open(os.path.join(path, file_name), 'wb') as f:
         f.write(data)
     return
