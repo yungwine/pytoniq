@@ -5,7 +5,7 @@ import typing
 import os
 
 
-logger = logging.getLogger(__file__)
+logger = logging.getLogger(name='TL')
 
 
 class TlError(BaseException):
@@ -117,6 +117,7 @@ class TlSchemas:
             self.class_name_map[schema.class_name] = self.class_name_map.get(schema.class_name, []) + [schema]
 
     def serialize_field(self, type_: str, value):
+        logger.log(level=5, msg=f'serializing {type_} with value {value}')
         result = b''
         if type_ in self.base_types:
             byte_len = self.base_types.get(type_)
@@ -167,6 +168,7 @@ class TlSchemas:
         return result
 
     def serialize(self, schema: TlSchema, data: dict, boxed: bool = True) -> bytes:
+        logger.log(level=5, msg=f'serializing schema {schema}')
         # https://core.telegram.org/mtproto/serialize
         """
         :param schema: TlSchema object
@@ -185,12 +187,9 @@ class TlSchemas:
                     continue
             value = data[field]
             result += self.serialize_field(type_, value)
-            # logger.critical()
-            p = self.serialize_field(type_, value)
+            # p = self.serialize_field(type_, value)
             # print(field, type_, len(p), p.hex())
         return result
-
-    # def deserialize_field(self, data: bytes, ):
 
     def deserialize(self, data: bytes, boxed: bool = True, args=None) -> typing.Tuple[typing.Union[dict, bytes], int]:
         i = 0
@@ -202,7 +201,7 @@ class TlSchemas:
                 # return {'bytes': data}, len(data)
             i += 4
             args = schema.args
-
+        logger.log(level=5, msg=f'deserializing schema with args {args}')
         for field, type_ in args.items():
             if '?' in type_:
                 index = int(type_[type_.find('.') + 1: type_.find('?')])

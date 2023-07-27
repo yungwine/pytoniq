@@ -117,8 +117,8 @@ class Address:
         """
         return cls(self.to_str(False))
 
-    def __str__(self):
-        return self.to_str()
+    # def __str__(self):
+    #     return self.to_str()
 
     def __repr__(self):
         return f'Address<{self.to_str()}>'

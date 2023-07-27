@@ -53,6 +53,7 @@ class LiteClient:
         """########### init ###########"""
         self.tasks = {}
         self.inited = False
+        self.logger = logging.getLogger(self.__class__.__name__)
 
         """########### sync ###########"""
         self.last_mc_block: BlockIdExt = None
@@ -123,15 +124,22 @@ class LiteClient:
 
             data_len_encrypted = await self.receive(4)
             data_len = int(self.decrypt(data_len_encrypted)[::-1].hex(), 16)
+
+            self.logger.debug(msg=f'received {data_len // 8} bytes of data')
+
             data_encrypted = await self.receive(data_len)
             data_decrypted = self.decrypt(data_encrypted)
             # check hashsum
             assert hashlib.sha256(data_decrypted[:-32]).digest() == data_decrypted[-32:], 'incorrect checksum'
             result = self.deserialize_adnl_query(data_decrypted[:-32])
+
             if not result:
                 # for handshake
                 result = {}
-            qid = result.get('query_id', result.get('random_id'))
+            if 'code' in result and 'message' in result:
+                raise LiteClientError(f'LiteClient crashed with {result["code"]} code. Message: {result["message"]}')
+
+            qid = result.get('query_id', result.get('random_id'))  # return query_id for ordinary requests, random_id for ping-pong requests, None for handshake
 
             request = self.tasks.pop(qid)
             request.set_result(result.get('answer', {}))
@@ -151,6 +159,7 @@ class LiteClient:
         for i in asyncio.all_tasks(self.loop):
             if i.get_name() in ('pinger', 'listener', 'updater'):
                 i.cancel()
+        self.logger.info(msg='client has been closed')
 
     def handshake(self) -> bytes:
         rand = get_random(160)
@@ -204,11 +213,11 @@ class LiteClient:
             ping_query, qid = self.get_ping_query()
             pong = await self.send(ping_query, qid)
             await pong
+            self.logger.debug(msg=f'ping - pong')
 
     async def liteserver_request(self, tl_schema_name: str, data: dict) -> dict:
-        # while not self.inited:
-        #     await asyncio.sleep(0)
         schema = self.schemas.get_by_name('liteServer.' + tl_schema_name)
+        self.logger.info(msg=f'requesting {tl_schema_name} with provided data {data}')
         data, qid = self.serialize_adnl_ls_query(schema, data)
         data = self.serialize_packet(data)
         resp = await self.send_and_encrypt(data, qid)
@@ -243,7 +252,7 @@ class LiteClient:
             shard_result[k] = BlockIdExt(workchain=k, seqno=shard.seq_no, shard=None, root_hash=shard.root_hash,
                                          file_hash=shard.file_hash)
         self.last_shard_blocks = shard_result
-        # print('updated!', self.last_mc_block, self.last_shard_blocks)
+        self.logger.debug(msg=f'update blocks:\nlast_mc_block: {self.last_mc_block}\nlast_shard_blocks: {self.last_shard_blocks}')
 
     async def block_updater(self):
         if self.last_mc_block is None:
@@ -672,8 +681,7 @@ class LiteClient:
         return last_trusted == target_block, last_trusted, best_key, best_key_ts
 
     async def get_mc_block_proof(self, known_block: BlockIdExt, target_block: BlockIdExt, return_best_key_block=False):
-        print('from: ', known_block)  # debug
-        print('target:', target_block)  # debug
+        self.logger.debug(msg=f'PROOF BLOCKS\nfrom: {known_block}\ntarget: {target_block}')
         last_proved = known_block
         best_key = None
         best_key_ts = 0
@@ -681,8 +689,7 @@ class LiteClient:
             _, last_proved, key, key_ts = await self.raw_get_mc_block_proof(last_proved, target_block, return_best_key_block)
             if return_best_key_block:
                 best_key, best_key_ts = choose_key_block(best_key, best_key_ts, key, key_ts)
-
-            print('proved', last_proved)  # debug
+            self.logger.debug(msg=f'PROOF BLOCKS\nproved: {last_proved}')
         if return_best_key_block:
             return best_key, best_key_ts
 
@@ -786,11 +793,10 @@ class LiteClient:
         init_block['root_hash'] = base64.b64decode(init_block['root_hash']).hex()
         init_block = BlockIdExt.from_dict(init_block)
         if not trust_level and init_block != init_mainnet_block and init_block != init_testnet_block:
-            # logger TODO
-            print('unknown init block found! please, check its hash to trust it')
+            logging.getLogger(cls.__name__).warning(msg='unknown init block found! please, check its hash to trust it')
 
         return cls(
-            host=socket.inet_ntoa(struct.pack('!L', ls['ip'])),
+            host=socket.inet_ntoa(struct.pack('>i', ls['ip'])),
             port=ls['port'],
             server_pub_key=ls['id']['key'],
             trust_level=trust_level,

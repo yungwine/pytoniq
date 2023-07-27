@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 import typing
@@ -5,18 +6,25 @@ import typing
 from ..tl.block import BlockIdExt
 
 
+logger = logging.getLogger('sync')
+
+
 async def sync(client: "LiteClient", to_block: BlockIdExt, init_block: BlockIdExt):
+    logger.info(msg=f'syncing to {to_block}')
     from .client import LiteClient
     valid_key_block_stored = False
     client: LiteClient
     blocks_data = get_last_stored_blocks(init_block.root_hash.hex())
     if not blocks_data:
+        logger.debug(f'no last blocks were found, syncing from the init block {init_block}')
         mc_block = init_block
         key_block = init_block
     else:
         ttl, key_ts, key_block, mc_block = parse_blocks(blocks_data)
+        logger.debug(f'found key block with ttl {ttl}')
         valid_key_block_stored = True
         if ttl <= time.time():
+            logger.debug(f'key block ttl has been expired, syncing from the init block {init_block}')
             mc_block = init_block
             key_block = init_block
             valid_key_block_stored = False
@@ -31,12 +39,13 @@ async def sync(client: "LiteClient", to_block: BlockIdExt, init_block: BlockIdEx
         best_key, best_key_ts = await client.get_mc_block_proof(known_block=mc_block, target_block=to_block, return_best_key_block=True)
     except:  # TODO specify exception class
         best_key, best_key_ts = await client.get_mc_block_proof(known_block=key_block, target_block=to_block, return_best_key_block=True)
-    # mc_block = await client.get_trusted_last_mc_block()
 
     if valid_key_block_stored:
         best_key, best_key_ts = choose_key_block(key_block, key_ts, best_key, best_key_ts)
 
     key_ttl = persistent_state_ttl(best_key_ts)
+    logger.info(msg=f'synced! store key block {best_key} with ttl {key_ttl}')
+
     store_blocks(blocks_to_bytes(key_ttl, best_key_ts, best_key, to_block), True, init_block.root_hash.hex())
     return True
 
