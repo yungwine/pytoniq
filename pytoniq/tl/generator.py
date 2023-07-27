@@ -1,7 +1,11 @@
+import logging
 import re
 import zlib
 import typing
 import os
+
+
+logger = logging.getLogger(__file__)
 
 
 class TlError(BaseException):
@@ -181,7 +185,8 @@ class TlSchemas:
                     continue
             value = data[field]
             result += self.serialize_field(type_, value)
-            # p = self.serialize_field(type_, value)
+            # logger.critical()
+            p = self.serialize_field(type_, value)
             # print(field, type_, len(p), p.hex())
         return result
 
@@ -240,7 +245,6 @@ class TlSchemas:
                             result[field] = result[field].decode()
             else:
                 # stucks when errors # TODO
-
                 if type_.startswith('('):
                     subtype = type_.split()[1][:-1]
                     sch = self.get_by_name(subtype)
@@ -261,7 +265,9 @@ class TlSchemas:
                 else:
                     sch = self.get_by_name(type_)
                     if not sch:
-                        sch = self.get_by_class_name(type_)
+                        # sch = self.get_by_class_name(type_)
+                        id = data[i:i + 4][::-1]
+                        sch = self.get_by_id(id)
                         i += 4
                     result[field], j = self.deserialize(data[i:], False, sch.args)
                     i += j
