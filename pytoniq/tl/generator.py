@@ -73,7 +73,7 @@ class TlSchemas:
         self.list: list = schemas
         self.id_map: typing.Dict[bytes, TlSchema] = {}
         self.name_map: typing.Dict[str, TlSchema] = {}
-        self.class_name_map: typing.Dict[str, TlSchema] = {}
+        self.class_name_map: typing.Dict[str, typing.List[TlSchema]] = {}
         self.generate_map()
 
     def get_by_id(self, tl_id: typing.Union[bytes, int], byteorder: typing.Literal['little', 'big'] = 'big') -> TlSchema:
@@ -96,7 +96,7 @@ class TlSchemas:
         """
         return self.name_map.get(name, None)  # or TlSchema.empty()?
 
-    def get_by_class_name(self, class_name: str) -> TlSchema:
+    def get_by_class_name(self, class_name: str) -> typing.List[TlSchema]:
         """
         :param class_name: boxed class_name of TL Schema
         :return: TlSchema or None
@@ -110,7 +110,7 @@ class TlSchemas:
                 continue
             self.id_map[schema.id] = schema
             self.name_map[schema.name] = schema
-            self.class_name_map[schema.class_name] = schema
+            self.class_name_map[schema.class_name] = self.class_name_map.get(schema.class_name, []) + [schema]
 
     def serialize_field(self, type_: str, value):
         result = b''
@@ -133,7 +133,6 @@ class TlSchemas:
                     if isinstance(value, bytes):
                         temp = b''
                         bytes_len = len(value)
-                        # print(schema.name, bytes_len, bytes_len, value)
                         if bytes_len <= 253:
                             temp += bytes_len.to_bytes(length=1, byteorder='little')
                         else:
@@ -144,13 +143,14 @@ class TlSchemas:
                         result += temp
                     else:
                         pass  # TODO
-
         else:
             schema = self.get_by_class_name(type_)
             if schema:  # implicit
-                result += self.serialize(schema, value, boxed=True)
+                if len(schema) == 1:
+                    result += self.serialize(schema[0], value, boxed=True)
+                else:
+                    result += value  # should be already in bytes, otherwise how do serializer know what scheme it should serialize?
             else:  # explicit
-                # print('explicit', self.get_by_name(type_))
                 if type_.startswith('('):
                     subtype = type_.split()[1][:-1]
                     if 'vector' in type_:
@@ -175,16 +175,14 @@ class TlSchemas:
         else:
             result = b''
         for field, type_ in schema.args.items():
-            # print(schema.name, field, type_)
-            if 'mode' in type_:
+            if 'mode' in type_ or 'flags' in type_:
                 type_ = type_.split('?')[1]
-                if not data.get(field):
+                if data.get(field) is None:
                     continue
             value = data[field]
-            p = self.serialize_field(type_, value)
             result += self.serialize_field(type_, value)
+            # p = self.serialize_field(type_, value)
             # print(field, type_, len(p), p.hex())
-            # print(field, value, len(p), p.hex())
         return result
 
     # def deserialize_field(self, data: bytes, ):
@@ -209,7 +207,6 @@ class TlSchemas:
                 if mask[index] == '0':
                     continue
                 type_ = type_.split('?')[-1]
-                # print(field, data[i:])
 
             if type_ in self.base_types:
                 byte_len = self.base_types.get(type_)
@@ -236,7 +233,6 @@ class TlSchemas:
                             byte_len = int.from_bytes(data[i:i+1], 'little')
                             i += 1
                         result[field], _ = self.deserialize(data[i:i+byte_len])
-                        # print(field, byte_len)
                         i += byte_len
                         if (byte_len + attach_len) % 4:
                             i += 4 - (byte_len + attach_len) % 4
@@ -254,19 +250,7 @@ class TlSchemas:
                         length = int.from_bytes(data[i:i + 4], 'little', signed=False)
                         i += 4
                         result[field] = []
-                        # print(length)
-                        # if sch is None:  # implicit
-                        #     if self.get_by_class_name(subtype):
-                        #         sch_id = data[i:i + 4]
-                        #         i += 4
-                        #         print(sch_id)
-                        #         # sch = self.get_by_name('liteServer.blockLinkForward')
-                        #         sch = self.get_by_id(sch_id[::-1])
-                        #         print(sch)
-                        #     else:
-                        #         raise TlError(f'unknown Tl Schema with {subtype}')
                         for _ in range(length):
-                            # print(sch, subtype)
                             if sch:
                                 deser, j = self.deserialize(data[i:], False, sch.args)
                             else:
@@ -287,11 +271,47 @@ class TlSchemas:
         return '[' + '\n'.join([i.__repr__() for i in self.list]) + ']'
 
 
+def split(fields: str):
+    result = {}
+    temp = ''
+    temp_key = ''
+    br = 0
+    for l in fields:
+        if l == '(':
+            temp += l
+            br += 1
+            continue
+        if l == ')':
+            temp += l
+            br -= 1
+            continue
+        if l == ':':
+            temp_key = temp
+            temp = ''
+            continue
+        if l == ' ':
+            if br == 0:
+                if temp_key:
+                    result[temp_key] = temp
+                temp_key = ''
+                temp = ''
+            else:
+                temp += l
+            continue
+        temp += l
+    return result
+
+
 class TlRegistrator:
 
     def __init__(self):
         self._re = re.compile(r"\s([^:]+):(\(.+\)|\S+)")
         self._base_types = TlSchemas.base_types
+        # https://www.debuggex.com/r/kT4s0-gThkHLZCGO ; to avoid recursion in reg ex and use built-in "re" lib.
+        # self._re = re.compile(r'[\w]*[^\w\s]*\[[^\]]*\]|'
+        #                             r'[\w]*[^\w\s]*\([^)(]*(?:\([^)(]*(?:\([^)(]*(?:\([^)(]*\)[^)(]*)*\)[^)(]*)*\)[^)(]*)*\)|'
+        #                             r'[\w]*[^\w\s]*\{[^\}]*\}|'
+        #                             r'\S+')
 
     def _is_boxed(self, args: dict) -> bool:
         for type_ in args.values():
@@ -308,7 +328,8 @@ class TlRegistrator:
             name = split_name[0]
         else:
             tl_id = self.get_id(schema.strip())
-        args = {i: j for i, j in self._re.findall(schema)}
+        # args = {i: j for i, j in self._re.findall(schema)}
+        args = split(' '.join(schema.split()[1:-1]))
         class_name = schema.split(' ')[-1].replace(';', '')
         return TlSchema(tl_id, name, class_name, args)
 
@@ -353,12 +374,14 @@ class TlGenerator:
             temp = ''
             for line in f:
                 stripped = line.strip()
+
                 if not stripped or stripped.startswith('//') or stripped.startswith('---'):
                     continue
                 if ';' not in stripped:
-                    temp += stripped
+                    temp += stripped + ' '
                     continue
                 else:
+                    stripped = temp + stripped
                     temp = ''
                 result.append(self._registrator.register(stripped))
         return result
