@@ -11,6 +11,12 @@ some popular contracts wrappers.
 ## Documentation
 [GitBook](https://yungwine.gitbook.io/pytoniq-doc/)
 
+## Installation
+
+```commandline
+pip install pytoniq 
+```
+
 ## Examples
 You can find them in the [examples](examples/) folder.
 

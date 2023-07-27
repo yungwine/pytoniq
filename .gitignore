@@ -163,3 +163,4 @@ cython_debug/
 .idea
 /tests/contracts/wallets/priv_key.py
 /pytoniq/tlb/code_generator.py
+/pytoniq/adnl/
