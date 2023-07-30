@@ -62,7 +62,7 @@ class NullCell:
         :param t: \t symbols amount before text
         :param comma: "," after "}"
         """
-        text = f'{len(self.bits)}[{self.bits.tobytes().hex().upper()}]'
+        text = ('* ' * (self.type_ != -1)) + f'{len(self.bits)}[{self.bits.tobytes().hex().upper()}]'
         if self.refs:
             text += f' -> {{\n'
             for index, ref in enumerate(self.refs):
