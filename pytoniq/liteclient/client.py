@@ -5,6 +5,7 @@ import os
 import asyncio
 import socket
 import struct
+import time
 import typing
 
 import requests
@@ -77,7 +78,7 @@ class LiteClient:
         self.pinger: asyncio.Task = None
         self.updater: asyncio.Task = None
         self.loop = asyncio.get_event_loop()
-        self.delta = 0.1  # listen delay
+        self.delta = 0.02  # listen delay
 
         """########### TL ###########"""
         if tl_schemas_path is None:
@@ -136,18 +137,20 @@ class LiteClient:
             if not result:
                 # for handshake
                 result = {}
-            if 'code' in result and 'message' in result:
-                raise LiteClientError(f'LiteClient crashed with {result["code"]} code. Message: {result["message"]}')
 
             qid = result.get('query_id', result.get('random_id'))  # return query_id for ordinary requests, random_id for ping-pong requests, None for handshake
 
             request = self.tasks.pop(qid)
-            request.set_result(result.get('answer', {}))
+
+            result = result.get('answer', {})
+            request.set_result(result)
 
     async def connect(self) -> None:
         handshake = self.handshake()
         self.reader, self.writer = await asyncio.open_connection(self.server.host, self.server.port)
         future = await self.send(handshake, None)
+        # async with asyncio.TaskGroup() as tg:
+        #     self.listener = tg.create_task(self.listen(), name='listener')
         self.listener = asyncio.create_task(self.listen(), name='listener')
         await self.update_last_blocks()
         self.pinger = asyncio.create_task(self.ping(), name='pinger')
@@ -215,14 +218,23 @@ class LiteClient:
             await pong
             self.logger.debug(msg=f'ping - pong')
 
+    async def liteserver_query(self, query: bytes, qid: str) -> dict:
+        data = self.serialize_packet(query)
+        resp = await self.send_and_encrypt(data, qid)
+        await resp
+        result = resp.result()
+
+        if 'code' in result and 'message' in result:
+            await self.close()
+            raise LiteClientError(f'LiteClient crashed with {result["code"]} code. Message: {result["message"]}')
+
+        return resp.result()
+
     async def liteserver_request(self, tl_schema_name: str, data: dict) -> dict:
         schema = self.schemas.get_by_name('liteServer.' + tl_schema_name)
         self.logger.info(msg=f'requesting {tl_schema_name} with provided data {data}')
         data, qid = self.serialize_adnl_ls_query(schema, data)
-        data = self.serialize_packet(data)
-        resp = await self.send_and_encrypt(data, qid)
-        await resp
-        return resp.result()
+        return await self.liteserver_query(data, qid)
 
     @staticmethod
     def pack_block_id_ext(**kwargs):
@@ -258,16 +270,33 @@ class LiteClient:
         if self.last_mc_block is None:
             self.last_mc_block = await self.get_trusted_last_mc_block()
         while True:
-            result = await self.wait_masterchain_seqno(self.last_mc_block.seqno + 1, timeout_ms=10000)
-            if result['code'] != 0:
-                logging.getLogger().warning(f'error response from liteserver in block updater: {result}')
+            await self.wait_masterchain_seqno(self.last_mc_block.seqno + 1, timeout_ms=10000, schema_name='getMasterchainInfo', data={})
             await self.update_last_blocks()
 
     async def get_masterchain_info(self):
         return await self.liteserver_request('getMasterchainInfo', {})
 
-    async def wait_masterchain_seqno(self, seqno: int, timeout_ms: int):
-        return await self.liteserver_request('waitMasterchainSeqno', {'seqno': seqno, 'timeout_ms': timeout_ms})
+    async def raw_wait_masterchain_seqno(self, seqno: int, timeout_ms: int, suffix: bytes = b''):
+        prefix = self.schemas.serialize(schema=self.schemas.get_by_name('liteServer.waitMasterchainSeqno'), data={'seqno': seqno, 'timeout_ms': timeout_ms})
+
+        qid = get_random(32)
+        data = self.schemas.serialize(
+            self.adnl_query_sch,
+            {'query_id': qid,
+             'query': self.schemas.serialize(self.ls_query_sch,
+                                             {'data': prefix + suffix}
+                                             )
+             }
+        )
+        return await self.liteserver_query(data, qid[::-1].hex())
+
+    async def wait_masterchain_seqno(self, seqno: int, timeout_ms: int, schema_name: str, data: dict = None):
+        if data is None:
+            data = {}
+
+        suffix = self.schemas.serialize(self.schemas.get_by_name('liteServer.' + schema_name), data)
+
+        return await self.raw_wait_masterchain_seqno(seqno, timeout_ms, suffix)
 
     async def get_masterchain_info_ext(self):
         return await self.liteserver_request('getMasterchainInfoExt', {'mode': 0})
@@ -359,7 +388,6 @@ class LiteClient:
 
         data = {'id': block.to_dict(), 'account': account}
         result = await self.liteserver_request('getAccountState', data)
-
         shrd_blk = BlockIdExt.from_dict(result['shardblk'])
         if not result['state']:
             return None, None  # account_none$0 = Account;

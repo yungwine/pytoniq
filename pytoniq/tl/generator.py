@@ -187,8 +187,7 @@ class TlSchemas:
                     continue
             value = data[field]
             result += self.serialize_field(type_, value)
-            # p = self.serialize_field(type_, value)
-            # print(field, type_, len(p), p.hex())
+        logger.log(level=5, msg=f'serialization result for schema {schema} is {result.hex()}')
         return result
 
     def deserialize(self, data: bytes, boxed: bool = True, args=None) -> typing.Tuple[typing.Union[dict, bytes], int]:
