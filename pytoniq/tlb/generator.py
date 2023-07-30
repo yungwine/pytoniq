@@ -4,7 +4,6 @@ WIP
 import os
 import re
 import typing
-from sympy import sympify, solve
 
 from bitarray import bitarray
 from bitarray.util import hex2ba
@@ -92,7 +91,8 @@ class TlbSchemas:
 
     @staticmethod
     def _solve_eq(equation: str, result: int) -> int:
-        return solve(f'Eq({equation}, {result})')[0]
+        return None
+        # return solve(f'Eq({equation}, {result})')[0]
 
     @staticmethod
     def _find_var(equation: str) -> typing.Optional[str]:

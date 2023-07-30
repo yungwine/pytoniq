@@ -1,5 +1,7 @@
 # pytoniq
 
+[![PyPI version](https://badge.fury.io/py/pytoniq.svg)](https://badge.fury.io/py/pytoniq) ![](https://pepy.tech/badge/pytoniq) [![Downloads](https://static.pepy.tech/badge/pytoniq/month)](https://pepy.tech/project/pytoniq) [![](https://img.shields.io/badge/%F0%9F%92%8E-TON-grey)](https://ton.org)
+
 Pytoniq is a Python SDK for the TON Blockchain. 
 Currently, it has native ADNL over TCP connection to Liteservers,
 boc types implementation, wrappers for almost all TLB schemes from block.tlb,
