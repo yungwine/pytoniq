@@ -77,7 +77,7 @@ class LiteClient:
         self.listener: asyncio.Task = None
         self.pinger: asyncio.Task = None
         self.updater: asyncio.Task = None
-        self.loop = asyncio.get_event_loop()
+        self.loop: asyncio.AbstractEventLoop = None
         self.delta = 0.02  # listen delay
 
         """########### TL ###########"""
@@ -146,17 +146,20 @@ class LiteClient:
             request.set_result(result)
 
     async def connect(self) -> None:
+        self.loop = asyncio.get_running_loop()
         handshake = self.handshake()
         self.reader, self.writer = await asyncio.open_connection(self.server.host, self.server.port)
         future = await self.send(handshake, None)
-        # async with asyncio.TaskGroup() as tg:
-        #     self.listener = tg.create_task(self.listen(), name='listener')
         self.listener = asyncio.create_task(self.listen(), name='listener')
         await self.update_last_blocks()
         self.pinger = asyncio.create_task(self.ping(), name='pinger')
         self.updater = asyncio.create_task(self.block_updater(), name='updater')
         await future
         self.inited = True
+
+    async def reconnect(self) -> None:
+        await self.close()
+        await self.connect()
 
     async def close(self) -> None:
         for i in asyncio.all_tasks(self.loop):
@@ -425,6 +428,8 @@ class LiteClient:
             method_id = method
         else:
             raise LiteClientError('provided method in unknown form')
+
+        print(method_id)
 
         if isinstance(stack, list):
             stack = VmStack.serialize(stack)
