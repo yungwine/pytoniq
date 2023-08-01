@@ -228,7 +228,6 @@ class LiteClient:
         result = resp.result()
 
         if 'code' in result and 'message' in result:
-            await self.close()
             raise LiteClientError(f'LiteClient crashed with {result["code"]} code. Message: {result["message"]}')
 
         return resp.result()
@@ -428,8 +427,6 @@ class LiteClient:
             method_id = method
         else:
             raise LiteClientError('provided method in unknown form')
-
-        print(method_id)
 
         if isinstance(stack, list):
             stack = VmStack.serialize(stack)
