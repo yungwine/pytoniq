@@ -22,7 +22,7 @@ setuptools.setup(
     python_requires='>=3.10',
     py_modules=["pytoniq"],
     install_requires=[
-        "cryptography>=40.0.2",
+        "pycryptodomex>=3.18.0",
         "bitarray>=2.6.0",
         "requests>=2.31.0",
         "x25519>=0.0.2",
