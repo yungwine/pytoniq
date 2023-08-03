@@ -353,15 +353,16 @@ class TlRegistrator:
 
 
 class TlGenerator:
-    """
-    This part is not really optimized because this will run only once when initialize client and 1000 runs took about 0.3 sec on 4 cores CPU
-    So the best decision was to make code readable instead of well optimized and difficult-to-understand
-    """
     def __init__(self, path: str, registrator: typing.Optional[TlRegistrator] = None) -> None:
         self._path = os.path.normpath(path)
         if registrator is None:
             registrator = TlRegistrator()
         self._registrator = registrator
+
+    @classmethod
+    def with_default_schemas(cls) -> "TlGenerator":
+        path = os.path.join(os.path.dirname(__file__), './schemas')
+        return cls(path)
 
     def generate(self):
         result = []

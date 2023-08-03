@@ -82,8 +82,9 @@ class LiteClient:
 
         """########### TL ###########"""
         if tl_schemas_path is None:
-            tl_schemas_path = os.path.join(os.path.dirname(__file__), os.pardir, 'tl/schemas')
-        self.schemas = TlGenerator(tl_schemas_path).generate()
+            self.schemas = TlGenerator.with_default_schemas().generate()
+        else:
+            self.schemas = TlGenerator(tl_schemas_path).generate()
         # for better performance:
         self.ping_sch = self.schemas.get_by_name('tcp.ping')
         self.pong_sch = self.schemas.get_by_name('tcp.pong')
