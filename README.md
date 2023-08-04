@@ -6,13 +6,7 @@
 [![Downloads](https://static.pepy.tech/badge/pytoniq/month)](https://pepy.tech/project/pytoniq) 
 [![](https://img.shields.io/badge/%F0%9F%92%8E-TON-grey)](https://ton.org)
 
-Pytoniq is a Python SDK for the TON Blockchain. 
-Currently, it has native ADNL over TCP connection to Liteservers,
-boc types implementation, wrappers for almost all TLB schemes from block.tlb,
-automaic TL schemes serialization/deserialization,
-some popular contracts wrappers.
-
-* Work in progress
+Pytoniq is a Python SDK for the TON Blockchain. This library extends [pytoniq-core](https://github.com/yungwine/pytoniq-core) with native `LiteClient` and `ADNL` over `udp` (in future).
 
 ## Documentation
 [GitBook](https://yungwine.gitbook.io/pytoniq-doc/)

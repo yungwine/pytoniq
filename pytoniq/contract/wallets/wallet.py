@@ -3,12 +3,12 @@ import typing
 
 from ...liteclient.client import LiteClient
 from ..contract import Contract, ContractError
-from ...crypto.keys import private_key_to_public_key, mnemonic_to_private_key, mnemonic_is_valid, mnemonic_new
-from ...crypto.signature import sign_message
-from ...boc import Cell, Builder
-from ...boc.address import Address
-from ...tlb.account import StateInit
-from ...tlb.custom.wallet import WalletV3Data, WalletV4Data, WalletMessage
+from pytoniq_core.crypto.keys import private_key_to_public_key, mnemonic_to_private_key, mnemonic_is_valid, mnemonic_new
+from pytoniq_core.crypto.signature import sign_message
+from pytoniq_core.boc import Cell, Builder
+from pytoniq_core.boc.address import Address
+from pytoniq_core.tlb.account import StateInit
+from pytoniq_core.tlb.custom.wallet import WalletV3Data, WalletV4Data, WalletMessage
 
 WALLET_V3_R2_CODE = Cell.one_from_boc(
     b'\xb5\xee\x9crA\x01\x01\x01\x00q\x00\x00\xde\xff\x00 \xdd \x82\x01L\x97\xba!\x82\x013\x9c\xba\xb1\x9fq\xb0\xedD\xd0\xd3\x1f\xd3\x1f1\xd7\x0b\xff\xe3\x04\xe0\xa4\xf2`\x83\x08\xd7\x18 \xd3\x1f\xd3\x1f\xd3\x1f\xf8#\x13\xbb\xf2c\xedD\xd0\xd3\x1f\xd3\x1f\xd3\xff\xd1Q2\xba\xf2\xa1QD\xba\xf2\xa2\x04\xf9\x01T\x10U\xf9\x10\xf2\xa3\xf8\x00\x93 \xd7J\x96\xd3\x07\xd4\x02\xfb\x00\xe8\xd1\x01\xa4\xc8\xcb\x1f\xcb\x1f\xcb\xff\xc9\xedT\x10\xbdm\xad')

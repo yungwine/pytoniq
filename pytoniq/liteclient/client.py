@@ -12,24 +12,23 @@ import requests
 
 from .sync import persistent_state_ttl, choose_key_block, sync
 from .utils import init_mainnet_block, init_testnet_block
-from ..boc import Slice, Cell, Builder
-from ..proof.check_proof import check_block_header_proof, check_shard_proof, check_account_proof, check_proof, \
+from pytoniq_core.boc import Slice, Cell, Builder
+from pytoniq_core.proof.check_proof import check_block_header_proof, check_shard_proof, check_account_proof, check_proof, \
     check_block_signatures, compute_validator_set
-from ..boc.address import Address
+from pytoniq_core.boc.address import Address
 
-# from .crypto import ed25519Public, ed25519Private, x25519Public, x25519Private
-from ..crypto.ciphers import Server, Client, get_random, create_aes_ctr_cipher, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key
-from ..crypto.crc import crc16
+from pytoniq_core.crypto.ciphers import Server, Client, get_random, create_aes_ctr_cipher, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key
+from pytoniq_core.crypto.crc import crc16
 
-from ..tl.generator import TlGenerator, TlSchema
-from ..tl.block import BlockId, BlockIdExt
-from ..tlb.config import ConfigParam34, ConfigParam28, ConfigParam
-from ..tlb.transaction import Transaction
-from ..tlb.utils import deserialize_shard_hashes
+from pytoniq_core.tl.generator import TlGenerator, TlSchema
+from pytoniq_core.tl.block import BlockId, BlockIdExt
+from pytoniq_core.tlb.config import ConfigParam34, ConfigParam28, ConfigParam
+from pytoniq_core.tlb.transaction import Transaction
+from pytoniq_core.tlb.utils import deserialize_shard_hashes
 
-from ..tlb.vm_stack import VmStack
-from ..tlb.block import Block, ShardDescr, BinTree, ShardStateUnsplit, KeyExtBlkRef
-from ..tlb.account import Account, SimpleAccount, ShardAccount, AccountBlock
+from pytoniq_core.tlb.vm_stack import VmStack
+from pytoniq_core.tlb.block import Block, ShardDescr, BinTree, ShardStateUnsplit, KeyExtBlkRef
+from pytoniq_core.tlb.account import Account, SimpleAccount, ShardAccount, AccountBlock
 
 
 class LiteClientError(BaseException):

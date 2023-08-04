@@ -3,9 +3,9 @@ import typing
 
 from ..contract import Contract, ContractError
 from ...liteclient.client import LiteClient
-from ...boc import Cell, Builder, HashMap
-from ...boc.address import Address
-from ...tlb.custom.nft import NftItemSaleData, NftItemSaleFees
+from pytoniq_core.boc import Cell, Builder, HashMap
+from pytoniq_core.boc.address import Address
+from pytoniq_core.tlb.custom.nft import NftItemSaleData, NftItemSaleFees
 
 
 # https://github.com/getgems-io/nft-contracts/blob/main/packages/contracts/sources/nft-fixprice-sale-v3r2.fc

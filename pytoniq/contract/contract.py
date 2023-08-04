@@ -1,11 +1,11 @@
 import typing
 
 from ..liteclient.client import LiteClient
-from ..boc.cell import Cell
-from ..boc.address import Address
-from ..tlb.account import StateInit, Account, SimpleAccount, ShardAccount
-from ..tlb.block import CurrencyCollection
-from ..tlb.transaction import ExternalMsgInfo, MessageAny, InternalMsgInfo
+from pytoniq_core.boc.cell import Cell
+from pytoniq_core.boc.address import Address
+from pytoniq_core.tlb.account import StateInit, Account, SimpleAccount, ShardAccount
+from pytoniq_core.tlb.block import CurrencyCollection
+from pytoniq_core.tlb.transaction import ExternalMsgInfo, MessageAny, InternalMsgInfo
 
 
 class ContractError(BaseException):

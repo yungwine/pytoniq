@@ -1,4 +1,4 @@
-from ..tl.block import BlockIdExt
+from pytoniq_core.tl.block import BlockIdExt
 
 init_mainnet_block = BlockIdExt.from_dict({
     "root_hash": "61192b72664cbcb06f8da9f0282c8bdf0e2871e18fb457e0c7cca6d502822bfe",

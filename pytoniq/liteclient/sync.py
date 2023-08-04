@@ -3,7 +3,7 @@ import os
 import time
 import typing
 
-from ..tl.block import BlockIdExt
+from pytoniq_core.tl.block import BlockIdExt
 
 
 logger = logging.getLogger('sync')
