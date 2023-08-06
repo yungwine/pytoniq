@@ -148,6 +148,44 @@ class AdnlUdpClient:
 
         return self.compute_flags_for_packet(data)
 
+    def _decrypt_any(self, resp_packet: bytes) -> bytes:
+        key_id = resp_packet[:32]
+        if key_id == self.client.get_key_id():
+            server_public_key = resp_packet[32:64]
+            checksum = resp_packet[64:96]
+            encrypted = resp_packet[96:]
+
+            shared_key = get_shared_key(self.client.x25519_private.encode(),
+                                        Server(self.host, self.port, server_public_key).x25519_public.encode())
+            dec_cipher = create_aes_ctr_sipher_from_key_n_data(shared_key, checksum)
+            decrypted = aes_ctr_decrypt(dec_cipher, encrypted)
+            assert hashlib.sha256(decrypted).digest() == checksum, 'invalid checksum'
+            return decrypted
+        else:
+            for channel in self.channels:
+                if key_id == channel.server_aes_key_id:
+                    checksum = resp_packet[32:64]
+                    encrypted = resp_packet[64:]
+                    decrypted = channel.decrypt(encrypted, checksum)
+                    assert hashlib.sha256(decrypted).digest() == checksum, 'invalid checksum'
+                    return decrypted
+            raise AdnlUdpClientError(f'unknown key id from node: {key_id}')
+
+    async def handle_response(self, sending_seqno: int, resp_packet: bytes) -> dict:
+        decrypted = self._decrypt_any(resp_packet)
+        response = self.schemas.deserialize(decrypted)[0]
+
+        self.requests[response.get('seqno')] = response
+        received_confirm_seqno = response.get('confirm_seqno')
+
+        if received_confirm_seqno > self.confirm_seqno:
+            self.confirm_seqno = received_confirm_seqno
+
+        while sending_seqno not in self.requests:
+            # if method got not its seqno than it adds received response to the `requests` dict and waits until some other method got its response
+            await asyncio.sleep(0)
+        return self.requests.pop(sending_seqno)
+
     async def send_message_in_channel(self, data: dict, channel: typing.Optional[AdnlChannel] = None) -> dict:
         if channel is None:
             if not self.channels:
@@ -166,23 +204,7 @@ class AdnlUdpClient:
 
         self.transport.sendto(res, None)
         packet, port = await self.protocol.receive()
-
-        checksum = packet[32:64]
-        encrypted = packet[64:]
-        decrypted = channel.decrypt(encrypted, checksum)
-
-        response = self.schemas.deserialize(decrypted)[0]
-
-        self.requests[response.get('seqno')] = response
-        received_confirm_seqno = response.get('confirm_seqno')
-
-        if received_confirm_seqno > self.confirm_seqno:
-            self.confirm_seqno = received_confirm_seqno
-
-        while sending_seqno not in self.requests:
-            # if method got not its seqno than it adds received response to the `requests` dict and waits until some other method got its response
-            await asyncio.sleep(0)
-        return self.requests.pop(sending_seqno)
+        return await self.handle_response(sending_seqno, packet)
 
     async def send_message_outside_channel(self, data: dict) -> dict:
         """
@@ -215,28 +237,7 @@ class AdnlUdpClient:
 
         packet, port = await self.protocol.receive()
 
-        assert packet[:32] == self.client.get_key_id()
-
-        server_public_key = packet[32:64]
-        checksum = packet[64:96]
-        encrypted = packet[96:]
-
-        shared_key = get_shared_key(self.client.x25519_private.encode(), Server(self.host, self.port, server_public_key).x25519_public.encode())
-        dec_cipher = create_aes_ctr_sipher_from_key_n_data(shared_key, checksum)
-        data = aes_ctr_decrypt(dec_cipher, encrypted)
-        assert hashlib.sha256(data).digest() == checksum
-
-        response = self.schemas.deserialize(data)[0]
-        self.requests[response.get('seqno')] = response
-        received_confirm_seqno = response.get('confirm_seqno')
-
-        if received_confirm_seqno > self.confirm_seqno:
-            self.confirm_seqno = received_confirm_seqno
-
-        while sending_seqno not in self.requests:
-            # if method got not its seqno than it adds received response to the `requests` dict and waits until some other method got its response
-            await asyncio.sleep(0)
-        return self.requests.pop(sending_seqno)
+        return await self.handle_response(sending_seqno, packet)
 
     async def connect(self) -> dict:
         """
