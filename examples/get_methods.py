@@ -1,9 +1,12 @@
 import asyncio
+import logging
 
 from pytoniq import LiteClient, WalletV4R2, Address
 
 
 async def main():
+    logging.basicConfig(level=logging.INFO)
+
     client = LiteClient.from_mainnet_config(ls_i=0, trust_level=2)
 
     await client.connect()
@@ -32,6 +35,7 @@ async def main():
     result = await client.run_get_method(address='EQDapqw6EnsabFZO46A4nIUXXtT4IIcnjPuabomeT4m3paST', method='get_wallet_data', stack=[])
     print(result)  # [2005472, <Slice 267[800DEB78CF30DC0C8612C3B3BE0086724D499B25CB2FBBB154C086C8B58417A2F040] -> 0 refs>, <Slice 267[800E538276DBE580F97E140D56C7A695E8A9E7A641D8379B1F6B8DA49A100D42F840] -> 0 refs>, <Cell 80[FF00F4A413F4BCF2C80B] -> 1 refs>]
 
+    await client.close()
 
 if __name__ == '__main__':
     asyncio.run(main())

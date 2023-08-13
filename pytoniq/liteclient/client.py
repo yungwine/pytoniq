@@ -3,6 +3,7 @@ import hashlib
 import logging
 import os
 import asyncio
+import random
 import socket
 import struct
 import time
@@ -45,15 +46,20 @@ class LiteClient:
                  host: str,  # ipv4 host
                  port: int,
                  server_pub_key: str,  # server ed25519 public key in base64,
+                 timeout: int = 10,
                  tl_schemas_path: typing.Optional[str] = None,
                  trust_level: int = 1,
                  init_key_block: BlockIdExt = None,
                  ) -> None:
+        """
+        ADNL over TCP client for `liteservers` usage
+        """
 
         """########### init ###########"""
         self.tasks = {}
         self.inited = False
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.timeout = timeout
 
         """########### sync ###########"""
         self.last_mc_block: BlockIdExt = None
@@ -73,11 +79,16 @@ class LiteClient:
         """########### connection ###########"""
         self.reader: asyncio.StreamReader = None
         self.writer: asyncio.StreamWriter = None
-        self.listener: asyncio.Task = None
-        self.pinger: asyncio.Task = None
-        self.updater: asyncio.Task = None
         self.loop: asyncio.AbstractEventLoop = None
         self.delta = 0.02  # listen delay
+
+        self.listener: asyncio.Task = None
+        rand_int = str(random.randint(10**9, 3 * 10**9))
+        self.listener_name: str = 'listener' + rand_int
+        self.pinger: asyncio.Task = None
+        self.pinger_name: str = 'pinger' + rand_int
+        self.updater: asyncio.Task = None
+        self.updater_name: str = 'updater' + rand_int
 
         """########### TL ###########"""
         if tl_schemas_path is None:
@@ -148,12 +159,12 @@ class LiteClient:
     async def connect(self) -> None:
         self.loop = asyncio.get_running_loop()
         handshake = self.handshake()
-        self.reader, self.writer = await asyncio.open_connection(self.server.host, self.server.port)
-        future = await self.send(handshake, None)
-        self.listener = asyncio.create_task(self.listen(), name='listener')
+        self.reader, self.writer = await asyncio.wait_for(asyncio.open_connection(self.server.host, self.server.port), self.timeout)
+        future = await asyncio.wait_for(self.send(handshake, None), self.timeout)
+        self.listener = asyncio.create_task(self.listen(), name=self.listener_name)
         await self.update_last_blocks()
-        self.pinger = asyncio.create_task(self.ping(), name='pinger')
-        self.updater = asyncio.create_task(self.block_updater(), name='updater')
+        self.pinger = asyncio.create_task(self.ping(), name=self.pinger_name)
+        self.updater = asyncio.create_task(self.block_updater(), name=self.updater_name)
         await future
         self.inited = True
 
@@ -163,7 +174,7 @@ class LiteClient:
 
     async def close(self) -> None:
         for i in asyncio.all_tasks(self.loop):
-            if i.get_name() in ('pinger', 'listener', 'updater'):
+            if i.get_name() in {self.listener_name, self.pinger_name, self.updater_name}:
                 i.cancel()
         self.logger.info(msg='client has been closed')
 
@@ -224,7 +235,7 @@ class LiteClient:
     async def liteserver_query(self, query: bytes, qid: str) -> dict:
         data = self.serialize_packet(query)
         resp = await self.send_and_encrypt(data, qid)
-        await resp
+        await asyncio.wait_for(resp, self.timeout)
         result = resp.result()
 
         if 'code' in result and 'message' in result:
