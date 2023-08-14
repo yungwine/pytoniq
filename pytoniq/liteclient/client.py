@@ -32,12 +32,16 @@ from pytoniq_core.tlb.block import Block, ShardDescr, BinTree, ShardStateUnsplit
 from pytoniq_core.tlb.account import Account, SimpleAccount, ShardAccount, AccountBlock
 
 
-class LiteClientError(BaseException):
+class LiteClientError(Exception):
     pass
 
 
 class RunGetMethodError(LiteClientError):
-    pass
+    def __init__(self, address: typing.Any, method: typing.Any, exit_code: int):
+        self.address = address
+        self.method = method
+        self.exit_code = exit_code
+        super().__init__(f'get method "{method}" for account {address} returned exit code {exit_code}')
 
 
 class LiteClient:
@@ -448,7 +452,7 @@ class LiteClient:
         result = await self.liteserver_request('runSmcMethod', data)
 
         if result['exit_code'] != 0:
-            raise RunGetMethodError(f'get method "{method}" for account {address} returned exit code {result["exit_code"]}')
+            raise RunGetMethodError(address=address, method=method, exit_code=result['exit_code'])
         if self.trust_level <= 1:
             shrd_blk = BlockIdExt.from_dict(result['shardblk'])
             check_shard_proof(shard_proof=result['shard_proof'], blk=block, shrd_blk=shrd_blk)
@@ -827,7 +831,7 @@ class LiteClient:
         return result['status']
 
     @classmethod
-    def from_config(cls, config: dict, ls_i: int = 0, trust_level: int = 2):
+    def from_config(cls, config: dict, ls_i: int = 0, trust_level: int = 2, timeout: int = 10):
         ls = config['liteservers'][ls_i]
         init_block = config['validator']['init_block']
         init_block['file_hash'] = base64.b64decode(init_block['file_hash']).hex()
@@ -845,11 +849,11 @@ class LiteClient:
         )
 
     @classmethod
-    def from_mainnet_config(cls, ls_i: int = 0, trust_level: int = 0):
+    def from_mainnet_config(cls, ls_i: int = 0, trust_level: int = 0, timeout: int = 10):
         config = requests.get('https://ton.org/global-config.json').json()
-        return cls.from_config(config, ls_i, trust_level)
+        return cls.from_config(config, ls_i, trust_level, timeout)
 
     @classmethod
-    def from_testnet_config(cls, ls_i: int = 0, trust_level: int = 0):
+    def from_testnet_config(cls, ls_i: int = 0, trust_level: int = 0, timeout: int = 10):
         config = requests.get('https://ton.org/testnet-global.config.json').json()
-        return cls.from_config(config, ls_i, trust_level)
+        return cls.from_config(config, ls_i, trust_level, timeout)
