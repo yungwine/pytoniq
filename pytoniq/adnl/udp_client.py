@@ -2,6 +2,7 @@ import asyncio
 import base64
 import os
 import socket
+import struct
 import time
 import hashlib
 import typing
@@ -14,7 +15,7 @@ from pytoniq_core.tl.block import BlockId, BlockIdExt
 
 from pytoniq_core.crypto.ciphers import Server, Client, AdnlChannel, get_random, create_aes_ctr_cipher, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key, create_aes_ctr_sipher_from_key_n_data
 from pytoniq_core.crypto.crc import crc16
-from pytoniq_core.crypto.signature import sign_message
+from pytoniq_core.crypto.signature import sign_message, verify_sign
 
 
 class AdnlUdpClientError(Exception):
@@ -23,10 +24,11 @@ class AdnlUdpClientError(Exception):
 
 class SocketProtocol(asyncio.DatagramProtocol):
 
-    def __init__(self):
+    def __init__(self, timeout: int = 10):
         # https://github.com/eerimoq/asyncudp/blob/main/asyncudp/__init__.py
         self._error = None
         self._packets = asyncio.Queue(10)
+        self.timeout = timeout
 
     def connection_made(self, transport: transports.DatagramTransport) -> None:
         print('connected')
@@ -43,7 +45,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
         super().error_received(exc)
 
     async def receive(self):
-        return await self._packets.get()
+        return await asyncio.wait_for(self._packets.get(), self.timeout)  # TODO improve timeout
 
 
 class AdnlUdpClient:
@@ -52,6 +54,7 @@ class AdnlUdpClient:
                  host: str,
                  port: int,
                  server_pub_key: str,  # server ed25519 public key in base64,
+                 timeout: int = 3,
                  tl_schemas_path: typing.Optional[str] = None,
                  ) -> None:
         """
@@ -65,12 +68,13 @@ class AdnlUdpClient:
         """########### init ###########"""
         self.loop: asyncio.AbstractEventLoop = None
         self.requests = {}  # dict {seqno[int]: response[dict]}
+        self.timeout = timeout
 
         """########### connection ###########"""
         self.host = host
         self.port = port
         self.transport: asyncio.Transport = None
-        self.protocol: asyncio.Protocol = None
+        self.protocol: SocketProtocol = None
         self.seqno = 1
         self.confirm_seqno = 0
 
@@ -245,7 +249,7 @@ class AdnlUdpClient:
         :return: response dict for dht.getSignedAddressList
         """
         self.loop = asyncio.get_running_loop()
-        self.transport, self.protocol = await self.loop.create_datagram_endpoint(SocketProtocol, remote_addr=(self.host, self.port))
+        self.transport, self.protocol = await self.loop.create_datagram_endpoint(lambda: SocketProtocol(timeout=self.timeout), remote_addr=(self.host, self.port))
 
         ts = int(time.time())
         channel_client = Client(Client.generate_ed25519_private_key())
@@ -279,7 +283,7 @@ class AdnlUdpClient:
         messages = data['messages']
 
         confirm_channel = messages[0]
-        assert confirm_channel.get('type') == 'adnl.message.confirmChannel', f'expected adnl.message.confirmChannel, got {confirm_channel.get("type")}'
+        assert confirm_channel.get('@type') == 'adnl.message.confirmChannel', f'expected adnl.message.confirmChannel, got {confirm_channel.get("type")}'
         assert confirm_channel['peer_key'] == channel_client.ed25519_public.encode().hex()
 
         channel_server = Server(self.host, self.port, bytes.fromhex(confirm_channel['key']))
@@ -296,6 +300,9 @@ class AdnlUdpClient:
 
         result = await self.send_message_in_channel(data)
         return result['message']['answer']
+
+    async def close(self):
+        self.transport.close()
 
     async def send_query_message(self, tl_schema_name: str, data: dict) -> dict:
         message = self.schemas.serialize(
@@ -334,3 +341,35 @@ class AdnlUdpClient:
 
         result = await self.send_message_in_channel(data)
         return result['message']['answer']
+
+    async def dht_find_value(self, key: bytes, k: int = 6):
+        data = {'key': key.hex(), 'k': k}
+        return await self.send_query_message('dht.findValue', data)
+
+    @classmethod
+    def from_dict(cls, data: dict, timeout: int = 10) -> "AdnlUdpClient":
+        try:
+            pub_k = bytes.fromhex(data['id']['key'])
+            pub_k_b64 = base64.b64encode(pub_k)
+        except ValueError:
+            pub_k_b64 = data['id']['key']
+            pub_k = base64.b64decode(pub_k_b64)
+            data['id']['key'] = pub_k.hex()
+        if isinstance(data['signature'], bytes):
+            signature = data['signature']
+        else:
+            signature = base64.b64decode(data['signature'])
+        data['signature'] = b''
+
+        # check signature
+        schemas = TlGenerator.with_default_schemas().generate()
+        signed_message = schemas.serialize(schema=schemas.get_by_name('dht.node'), data=data)
+        if not verify_sign(pub_k, signed_message, signature):
+            raise AdnlUdpClientError('invalid node signature!')
+
+        node_addr = data['addr_list']['addrs'][0]
+        host = socket.inet_ntoa(struct.pack('>i', node_addr['ip']))
+        return cls(host=host, port=node_addr['port'], server_pub_key=pub_k_b64, timeout=timeout)
+
+    def __hash__(self):  # to store in sets / dicts as keys
+        return int.from_bytes(self.peer_id, 'big')
