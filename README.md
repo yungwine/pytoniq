@@ -8,6 +8,8 @@
 
 Pytoniq is a Python SDK for the TON Blockchain. This library extends [pytoniq-core](https://github.com/yungwine/pytoniq-core) with native `LiteClient` and `ADNL` over `udp` (in future).
 
+If you have any questions join Python - TON [developers chat](https://t.me/pythonnton).
+
 ## Documentation
 [GitBook](https://yungwine.gitbook.io/pytoniq-doc/)
 
