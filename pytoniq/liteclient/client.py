@@ -516,6 +516,28 @@ class LiteClient:
 
         return deserialize_shard_hashes(shard_hashes_cell.begin_parse())
 
+    async def get_all_shards_info(self, block: typing.Optional[BlockIdExt] = None) -> typing.List[BlockIdExt]:
+        """
+        High-level function to get shards as `BlockIdExt` list instead of BinTrees
+        :param block: block to get shards of
+        :return: list of BlockIdExt of all block shards
+        """
+        shards = await self.raw_get_all_shards_info(block)
+        result = []
+        for k, v in shards.items():
+            for sh in v.list:
+                sh: ShardDescr
+                result.append(
+                    BlockIdExt(
+                        workchain=k,
+                        shard=sh.next_validator_shard_signed,
+                        seqno=sh.seq_no,
+                        root_hash=sh.root_hash,
+                        file_hash=sh.file_hash
+                    )
+                )
+        return result
+
     async def get_one_transaction(self, address: typing.Union[Address, str], lt: int, block: BlockIdExt) -> typing.Optional[Transaction]:
         if isinstance(address, str):
             address = Address(address)
@@ -623,9 +645,11 @@ class LiteClient:
         data = {'id': block.to_dict(), 'mode': mode, 'count': count, 'want_proof': b''}
         result = await self.liteserver_request('listBlockTransactionsExt', data)
 
-        transactions_cells = Cell.from_boc(result['transactions'])
         if not result['transactions']:
             return []
+
+        transactions_cells = Cell.from_boc(result['transactions'])
+
         if self.trust_level <= 1:
             proof = Cell.one_from_boc(result['proof'])
             check_block_header_proof(proof[0], block.root_hash)
@@ -637,7 +661,7 @@ class LiteClient:
         for tr_root in transactions_cells:
             transaction = Transaction.deserialize(tr_root.begin_parse())
             if self.trust_level <= 1:
-                prunned_tr_cell = acc_block.get(int(transaction.account_addr, 16)).transactions[0].get(transaction.lt)
+                prunned_tr_cell = acc_block.get(int(transaction.account_addr_hex, 16)).transactions[0].get(transaction.lt)
                 assert prunned_tr_cell.get_hash(0) == tr_root.get_hash(0)
             # transaction.account = Address((block.workchain, bytes.fromhex(transaction.account_addr)))
             tr_result.append(transaction)
@@ -812,17 +836,40 @@ class LiteClient:
         if prove_mc:
             await self.get_mc_block_proof(known_block=self.last_key_block, target_block=mc_block)
 
+        def check_shard_in_master(proof: Cell, blk: BlockIdExt):
+            check_block_header_proof(proof[0], mc_block.root_hash)
+
+            shards = Block.deserialize(proof[0].begin_parse()).extra.custom.shard_hashes[blk.workchain].list
+            shard = None
+            for sh in shards:
+                sh: ShardDescr
+                if sh.seq_no == blk.seqno and sh.next_validator_shard_signed == blk.shard:
+                    shard = sh.__dict__
+
+            shardblk = BlockIdExt.from_dict(shard)
+            shardblk.seqno = shard['seq_no']
+            shardblk.workchain = blk.workchain
+            return shardblk
+
+        if len(result['links']) == 1:
+            assert check_shard_in_master(Cell.one_from_boc(result['links'][0]['proof']), blk) == blk
+            return
+
+        last_shard_blk = None
+
         for link in result['links']:
-            if BlockIdExt.from_dict(link['id']) == blk:
-                proof = Cell.one_from_boc(link['proof'])
-                check_block_header_proof(proof[0], mc_block.root_hash)
-                shard = Block.deserialize(proof[0].begin_parse()).extra.custom.shard_hashes[blk.workchain].list[0].__dict__
-                shardblk = BlockIdExt.from_dict(shard)
-                shardblk.seqno = shard['seq_no']
-                shardblk.workchain = blk.workchain
-                assert shardblk == blk
-            else:
-                raise NotImplementedError()
+            proof = Cell.one_from_boc(link['proof'])
+            if proof[0].get_hash(0) == mc_block.root_hash:
+                last_shard_blk = check_shard_in_master(proof, BlockIdExt.from_dict(link['id']))
+                continue
+            check_block_header_proof(proof[0], last_shard_blk.root_hash)
+            shrd_blk = Block.deserialize(proof[0].begin_parse())
+            prev_blk = shrd_blk.info.prev_ref.prev
+
+            last_shard_blk = BlockIdExt.from_dict(prev_blk.__dict__ | {'workchain': last_shard_blk.workchain, 'shard': last_shard_blk.shard})
+            if last_shard_blk == blk:
+                return
+            raise LiteClientError('incorrect proof')
 
     async def raw_send_message(self, message: bytes):
         data = {'body': message}
