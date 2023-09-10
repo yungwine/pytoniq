@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import os
 import socket
 import struct
 import time
@@ -9,13 +8,10 @@ import typing
 from asyncio import transports
 from typing import Any
 
-from nacl.signing import SigningKey
-from pytoniq_core.tl.generator import TlGenerator, TlSchema
-from pytoniq_core.tl.block import BlockId, BlockIdExt
+from pytoniq_core.tl.generator import TlGenerator
 
-from pytoniq_core.crypto.ciphers import Server, Client, AdnlChannel, get_random, create_aes_ctr_cipher, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key, create_aes_ctr_sipher_from_key_n_data
-from pytoniq_core.crypto.crc import crc16
-from pytoniq_core.crypto.signature import sign_message, verify_sign
+from pytoniq_core.crypto.ciphers import Server, Client, AdnlChannel, get_random, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key, create_aes_ctr_sipher_from_key_n_data
+from pytoniq_core.crypto.signature import verify_sign
 
 
 class AdnlUdpClientError(Exception):
@@ -27,7 +23,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
     def __init__(self, timeout: int = 10):
         # https://github.com/eerimoq/asyncudp/blob/main/asyncudp/__init__.py
         self._error = None
-        self._packets = asyncio.Queue(10)
+        self._packets = asyncio.Queue(1000)
         self.timeout = timeout
 
     def connection_made(self, transport: transports.DatagramTransport) -> None:
@@ -67,8 +63,9 @@ class AdnlUdpClient:
 
         """########### init ###########"""
         self.loop: asyncio.AbstractEventLoop = None
-        self.requests = {}  # dict {seqno[int]: response[dict]}
         self.timeout = timeout
+        self.listener = None
+        self.tasks: typing.Dict[str, asyncio.Future] = {}
 
         """########### connection ###########"""
         self.host = host
@@ -173,24 +170,69 @@ class AdnlUdpClient:
                     decrypted = channel.decrypt(encrypted, checksum)
                     assert hashlib.sha256(decrypted).digest() == checksum, 'invalid checksum'
                     return decrypted
-            raise AdnlUdpClientError(f'unknown key id from node: {key_id}')
+            # raise AdnlUdpClientError(f'unknown key id from node: {key_id}')
 
-    async def handle_response(self, sending_seqno: int, resp_packet: bytes) -> dict:
-        decrypted = self._decrypt_any(resp_packet)
-        response = self.schemas.deserialize(decrypted)[0]
+    def process_outcoming_message(self, message: dict) -> typing.Optional[asyncio.Future]:
+        future = self.loop.create_future()
+        type_ = message['@type']
+        if type_ == 'adnl.message.query':
+            self.tasks[message.get('query_id')[::-1].hex()] = future
+        elif type_ == 'adnl.message.createChannel':
+            self.tasks[message.get('key')] = future
+        else:
+            raise AdnlUdpClientError(f'unexpected message sending as a client: {message}')
+        return future
 
-        self.requests[response.get('seqno')] = response
-        received_confirm_seqno = response.get('confirm_seqno')
+    def _create_futures(self, data: dict) -> typing.List[asyncio.Future]:
+        futures = []
+        if data.get('message'):
+            future = self.process_outcoming_message(data['message'])
+            if future is not None:
+                futures.append(future)
 
-        if received_confirm_seqno > self.confirm_seqno:
-            self.confirm_seqno = received_confirm_seqno
+        if data.get('messages'):
+            for message in data['messages']:
+                future = self.process_outcoming_message(message)
+                if future is not None:
+                    futures.append(future)
+        return futures
 
-        while sending_seqno not in self.requests:
-            # if method got not its seqno than it adds received response to the `requests` dict and waits until some other method got its response
-            await asyncio.sleep(0)
-        return self.requests.pop(sending_seqno)
+    @staticmethod
+    async def _receive(futures: typing.List[asyncio.Future]) -> list:
+        return list(await asyncio.gather(*futures))
 
-    async def send_message_in_channel(self, data: dict, channel: typing.Optional[AdnlChannel] = None) -> dict:
+    def process_incoming_message(self, message: dict):
+        if message['@type'] == 'adnl.message.answer':
+            future = self.tasks.pop(message.get('query_id'))
+            future.set_result(message['answer'])
+        elif message['@type'] == 'adnl.message.confirmChannel':
+            future = self.tasks.pop(message.get('peer_key'))
+            future.set_result(message)
+        else:
+            raise AdnlUdpClientError(f'unexpected message type received as a client: {message}')
+
+    async def listen(self):
+        while True:
+            packet, addr = await self.protocol.receive()
+            decrypted = self._decrypt_any(packet)
+            if decrypted is None:
+                continue
+            response = self.schemas.deserialize(decrypted)[0]
+            received_confirm_seqno = response.get('confirm_seqno')
+
+            if received_confirm_seqno > self.confirm_seqno:
+                self.confirm_seqno = received_confirm_seqno
+
+            message = response.get('message')
+            messages = response.get('messages')
+
+            if message:
+                self.process_incoming_message(message)
+            if messages:
+                for message in messages:
+                    self.process_incoming_message(message)
+
+    async def send_message_in_channel(self, data: dict, channel: typing.Optional[AdnlChannel] = None) -> list:
         if channel is None:
             if not self.channels:
                 raise AdnlUdpClientError('no channels created!')
@@ -198,6 +240,8 @@ class AdnlUdpClient:
 
         data = self.prepare_packet_content_msg(data)
         sending_seqno = data.get('seqno')
+
+        futures = self._create_futures(data)
 
         if self.seqno == sending_seqno:
             self.seqno += 1
@@ -207,10 +251,11 @@ class AdnlUdpClient:
         res = channel.encrypt(serialized)
 
         self.transport.sendto(res, None)
-        packet, port = await self.protocol.receive()
-        return await self.handle_response(sending_seqno, packet)
+        result = await asyncio.wait_for(self._receive(futures), self.timeout)
 
-    async def send_message_outside_channel(self, data: dict) -> dict:
+        return result
+
+    async def send_message_outside_channel(self, data: dict) -> list:
         """
         Serializes, signs and encrypts sending message.
         :param data: data for `adnl.packetContents` TL Scheme
@@ -220,6 +265,8 @@ class AdnlUdpClient:
         sending_seqno = data.get('seqno')
 
         data = self.compute_flags_for_packet(data)
+
+        futures = self._create_futures(data)
 
         serialized1 = self.schemas.serialize(self.adnl_packet_content_sch, self.compute_flags_for_packet(data))
         signature = self.client.sign(serialized1)
@@ -239,11 +286,10 @@ class AdnlUdpClient:
         else:
             raise Exception(f'sending seqno {sending_seqno}, client seqno: {self.seqno}')
 
-        packet, port = await self.protocol.receive()
+        result = await asyncio.wait_for(self._receive(futures), self.timeout)
+        return result
 
-        return await self.handle_response(sending_seqno, packet)
-
-    async def connect(self) -> dict:
+    async def connect(self) -> list:
         """
         Connects to the peer, creates channel and asks for a signed list in channel.
         :return: response dict for dht.getSignedAddressList
@@ -253,15 +299,17 @@ class AdnlUdpClient:
 
         ts = int(time.time())
         channel_client = Client(Client.generate_ed25519_private_key())
-        create_channel_message = self.schemas.serialize(schema=self.create_channel_sch, data={'key': channel_client.ed25519_public.encode().hex(), 'date': ts})
+        create_channel_message = {
+            '@type': 'adnl.message.createChannel',
+            'key': channel_client.ed25519_public.encode().hex(),
+            'date': ts
+        }
 
-        get_addr_list_message = self.schemas.serialize(
-            self.adnl_query_sch,
-            data={
-                    'query_id': get_random(32),
-                    'query': self.schemas.get_by_name('dht.getSignedAddressList').little_id()
-            }
-        )
+        get_addr_list_message = {
+            '@type': 'adnl.message.query',
+            'query_id': get_random(32),
+            'query': self.schemas.get_by_name('dht.getSignedAddressList').little_id()
+        }
 
         from_ = self.schemas.serialize(self.schemas.get_by_name('pub.ed25519'), data={'key': self.client.ed25519_public.encode().hex()})
         data = {
@@ -279,11 +327,12 @@ class AdnlUdpClient:
             'dst_reinit_date': 0,
         }
 
-        data = await self.send_message_outside_channel(data)
-        messages = data['messages']
+        self.listener = self.loop.create_task(self.listen())
+
+        messages = await self.send_message_outside_channel(data)
 
         confirm_channel = messages[0]
-        assert confirm_channel.get('@type') == 'adnl.message.confirmChannel', f'expected adnl.message.confirmChannel, got {confirm_channel.get("type")}'
+        assert confirm_channel.get('@type') == 'adnl.message.confirmChannel', f'expected adnl.message.confirmChannel, got {confirm_channel.get("@type")}'
         assert confirm_channel['peer_key'] == channel_client.ed25519_public.encode().hex()
 
         channel_server = Server(self.host, self.port, bytes.fromhex(confirm_channel['key']))
@@ -299,55 +348,52 @@ class AdnlUdpClient:
         }
 
         result = await self.send_message_in_channel(data)
-        return result['message']['answer']
+        return result
 
     async def close(self):
         self.transport.close()
 
     async def send_query_message(self, tl_schema_name: str, data: dict) -> dict:
-        message = self.schemas.serialize(
-            self.adnl_query_sch,
-            data={
-                'query_id': get_random(32),
-                'query': self.schemas.serialize(
+        message = {
+            '@type': 'adnl.message.query',
+            'query_id': get_random(32),
+            'query': self.schemas.serialize(
                     self.schemas.get_by_name(tl_schema_name),
                     data
-                )
-            }
-        )
+            )
+        }
 
         data = {
             'message': message,
         }
 
         result = await self.send_message_in_channel(data)
-        return result['message']['answer']
+        return result
 
     async def get_signed_address_list(self) -> dict:
         return await self.send_query_message('dht.getSignedAddressList', {})
 
-    async def send_custom_message(self, message: bytes) -> dict:
+    async def send_custom_message(self, message: bytes) -> list:
         # TODO test
-        custom_message = self.schemas.serialize(
-            self.schemas.get_by_name('adnl.message.custom'),
-            data={
-                'data': message
-            }
-        )
+
+        custom_message = {
+            '@type': 'adnl.message.custom',
+            'data': message
+        }
 
         data = {
             'message': custom_message,
         }
 
         result = await self.send_message_in_channel(data)
-        return result['message']['answer']
+        return result
 
     async def dht_find_value(self, key: bytes, k: int = 6):
         data = {'key': key.hex(), 'k': k}
         return await self.send_query_message('dht.findValue', data)
 
     @classmethod
-    def from_dict(cls, data: dict, timeout: int = 10) -> "AdnlUdpClient":
+    def from_dict(cls, data: dict, timeout: int = 10, check_signature=True) -> "AdnlUdpClient":
         try:
             pub_k = bytes.fromhex(data['id']['key'])
             pub_k_b64 = base64.b64encode(pub_k)
@@ -362,10 +408,11 @@ class AdnlUdpClient:
         data['signature'] = b''
 
         # check signature
-        schemas = TlGenerator.with_default_schemas().generate()
-        signed_message = schemas.serialize(schema=schemas.get_by_name('dht.node'), data=data)
-        if not verify_sign(pub_k, signed_message, signature):
-            raise AdnlUdpClientError('invalid node signature!')
+        if check_signature:
+            schemas = TlGenerator.with_default_schemas().generate()
+            signed_message = schemas.serialize(schema=schemas.get_by_name('dht.node'), data=data)
+            if not verify_sign(pub_k, signed_message, signature):
+                raise AdnlUdpClientError('invalid node signature!')
 
         node_addr = data['addr_list']['addrs'][0]
         host = socket.inet_ntoa(struct.pack('>i', node_addr['ip']))
