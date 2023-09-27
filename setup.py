@@ -5,13 +5,14 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="pytoniq",
-    version="0.1.5",
+    version="0.1.7",
     author="Maksim Kurbatov",
     author_email="cyrbatoff@gmail.com",
     description="TON Blockchain SDK",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    packages=setuptools.find_packages('.', exclude=['tests', 'examples', 'pytoniq/adnl/overlay.py']),
+    packages=setuptools.find_packages('.', exclude=['tests', 'examples']),
+    include_package_data=True,
     classifiers=[
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
