@@ -611,6 +611,8 @@ class LiteClient:
             tr_result, block_ids = await self.raw_get_transactions(address, amount, from_lt, from_hash)
             result += tr_result
             from_lt, from_hash = result[-1].prev_trans_lt, result[-1].prev_trans_hash
+            if from_lt == 0:
+                break
         # assert len(result) == count, f'expected {count} transactions, got {len(result)}'
         return result
 
