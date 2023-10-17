@@ -3,6 +3,7 @@ import base64
 import logging
 import time
 import hashlib
+import types
 import typing
 from asyncio import transports
 from typing import Any
@@ -24,7 +25,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
     def connection_made(self, transport: transports.DatagramTransport) -> None:
         super().connection_made(transport)
 
-    def datagram_received(self, data: bytes, addr: tuple[str | Any, int]) -> None:
+    def datagram_received(self, data: bytes, addr: typing.Tuple[typing.Union[str, Any], int]) -> None:
         self.logger.debug(f'received {len(data)} bytes')
         self._packets.put_nowait((data, addr))
         super().datagram_received(data, addr)
@@ -117,6 +118,7 @@ class AdnlTransport:
         self.timeout = kwargs.get('timeout', 10)
         self.listener = None
         self.tasks: typing.Dict[str, asyncio.Future] = {}
+        self.query_handlers: typing.Dict[str, typing.Callable] = {}
 
         """########### connection ###########"""
         self.transport: asyncio.DatagramTransport = None
@@ -258,13 +260,18 @@ class AdnlTransport:
     async def _receive(futures: typing.List[asyncio.Future]) -> list:
         return list(await asyncio.gather(*futures))
 
-    def process_incoming_message(self, message: dict):
+    async def process_incoming_message(self, message: dict):
         if message['@type'] == 'adnl.message.answer':
             future = self.tasks.pop(message.get('query_id'))
             future.set_result(message['answer'])
         elif message['@type'] == 'adnl.message.confirmChannel':
             future = self.tasks.pop(message.get('peer_key'))
             future.set_result(message)
+        elif message['@type'] == 'adnl.message.query':
+            query = message.get('query')
+            handler = self.query_handlers.get(query['@type'])
+            if handler:
+                handler(query)
         else:
             raise AdnlTransportError(f'unexpected message type received as a client: {message}')
 
@@ -287,10 +294,10 @@ class AdnlTransport:
             messages = response.get('messages')
 
             if message:
-                self.process_incoming_message(message)
+                await self.process_incoming_message(message)
             if messages:
                 for message in messages:
-                    self.process_incoming_message(message)
+                    await self.process_incoming_message(message)
 
     async def send_message_in_channel(self, data: dict, channel: typing.Optional[AdnlChannel] = None, peer: Node = None) -> list:
 
@@ -443,6 +450,8 @@ class AdnlTransport:
         result = await self.send_message_in_channel(data, None, peer)
         return result
 
+    async def send_answer_message(self, ):
+        pass
     async def send_custom_message(self, message: bytes, peer) -> list:
         # TODO test
 

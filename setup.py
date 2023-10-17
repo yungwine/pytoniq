@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="pytoniq",
-    version="0.1.8",
+    version="0.1.9",
     author="Maksim Kurbatov",
     author_email="cyrbatoff@gmail.com",
     description="TON Blockchain SDK",
@@ -14,15 +14,16 @@ setuptools.setup(
     packages=setuptools.find_packages('.', exclude=['tests', 'examples']),
     include_package_data=True,
     classifiers=[
+        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Topic :: Software Development :: Libraries",
     ],
     url="https://github.com/yungwine/pytoniq",
-    python_requires='>=3.10',
+    python_requires='>=3.9',
     py_modules=["pytoniq"],
     install_requires=[
-        "pytoniq-core>=0.1.8",
+        "pytoniq-core>=0.1.10",
         "requests>=2.31.0",
         "setuptools>=65.5.1",
     ]

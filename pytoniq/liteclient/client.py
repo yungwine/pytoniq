@@ -1,19 +1,17 @@
 import base64
 import hashlib
 import logging
-import os
 import asyncio
 import random
 import socket
 import struct
-import time
 import typing
 
 import requests
 
-from .sync import persistent_state_ttl, choose_key_block, sync
+from .sync import choose_key_block, sync
 from .utils import init_mainnet_block, init_testnet_block
-from pytoniq_core.boc import Slice, Cell, Builder
+from pytoniq_core.boc import Slice, Cell
 from pytoniq_core.proof.check_proof import check_block_header_proof, check_shard_proof, check_account_proof, check_proof, \
     check_block_signatures, compute_validator_set
 from pytoniq_core.boc.address import Address
@@ -22,7 +20,7 @@ from pytoniq_core.crypto.ciphers import Server, Client, get_random, create_aes_c
 from pytoniq_core.crypto.crc import crc16
 
 from pytoniq_core.tl.generator import TlGenerator, TlSchema
-from pytoniq_core.tl.block import BlockId, BlockIdExt
+from pytoniq_core.tl.block import BlockIdExt, BlockId  # do not remove this import!
 from pytoniq_core.tlb.config import ConfigParam34, ConfigParam28, ConfigParam
 from pytoniq_core.tlb.transaction import Transaction
 from pytoniq_core.tlb.utils import deserialize_shard_hashes
