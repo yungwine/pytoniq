@@ -178,6 +178,11 @@ class LiteClient:
         for i in asyncio.all_tasks(self.loop):
             if i.get_name() in {self.listener_name, self.pinger_name, self.updater_name}:
                 i.cancel()
+        self.inited = False
+        self.tasks = {}
+        self.writer.close()
+        self.reader = None
+        self.writer = None
         self.logger.info(msg='client has been closed')
 
     def handshake(self) -> bytes:
