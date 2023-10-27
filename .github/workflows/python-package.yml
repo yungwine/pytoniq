@@ -40,7 +40,8 @@ jobs:
         # pytest
     # todo: add pytest
   deploy:
-
+  
+    needs: build
     runs-on: ubuntu-latest
 
     steps:
