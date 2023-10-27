@@ -9,11 +9,11 @@ from pytoniq_core.tl.block import BlockIdExt
 logger = logging.getLogger('sync')
 
 
-async def sync(client: "LiteClient", to_block: BlockIdExt, init_block: BlockIdExt):
+async def sync(client, to_block: BlockIdExt, init_block: BlockIdExt):
     logger.info(msg=f'syncing to {to_block}')
     from .client import LiteClient
-    valid_key_block_stored = False
     client: LiteClient
+    valid_key_block_stored = False
     blocks_data = get_last_stored_blocks(init_block.root_hash.hex())
     if not blocks_data:
         logger.debug(f'no last blocks were found, syncing from the init block {init_block}')
