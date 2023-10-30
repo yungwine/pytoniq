@@ -13,6 +13,20 @@ async def main():
     # start adnl receiving server
     await adnl.start()
 
+    # can set default handler for any query
+    adnl.set_default_query_handler(handler=lambda i: print(i))
+
+    # or provide function to process specific queries
+    def process_get_capabilities_request(_):
+        return {
+            '@type': 'tonNode.capabilities',
+            'version': 2,
+            'capabilities': 1,
+        }
+
+    adnl.set_query_handler(type_='overlay.getCapabilities',
+                           handler=lambda i: process_get_capabilities_request(i))
+
     # take peer from public config
     peer = Node('172.104.59.125', 14432, "/YDNd+IwRUgL0mq21oC0L3RxrS8gTu0nciSPUrhqR78=", adnl)
     await adnl.connect_to_peer(peer)
