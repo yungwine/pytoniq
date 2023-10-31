@@ -40,7 +40,7 @@ jobs:
         # pytest
     # todo: add pytest
   deploy:
-  
+    if: (github.repository == 'yungwine/pytoniq') && (github.event_name == 'push')
     needs: build
     runs-on: ubuntu-latest
 
