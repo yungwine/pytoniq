@@ -178,10 +178,13 @@ class LiteClient:
         for i in asyncio.all_tasks(self.loop):
             if i.get_name() in {self.listener_name, self.pinger_name, self.updater_name}:
                 i.cancel()
+                while not i.cancelled():
+                    await asyncio.sleep(0.1)
         self.inited = False
         self.tasks = {}
-        self.writer.close()
         self.reader = None
+        self.writer.close()
+        await self.writer.wait_closed()
         self.writer = None
         self.logger.info(msg='client has been closed')
 
