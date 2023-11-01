@@ -7,11 +7,12 @@ import socket
 import struct
 
 import requests
-from pytoniq_core.crypto.ciphers import Client
+from pytoniq_core.crypto.ciphers import Client, Server
 from pytoniq_core.crypto.signature import verify_sign
 from pytoniq_core.tl import TlGenerator
 
 from .adnl import Node, AdnlTransport
+from .overlay import OverlayNode, OverlayTransport
 
 
 class DhtError(Exception):
@@ -82,16 +83,20 @@ class DhtClient:
         for node in self.nodes_set:
             await node.disconnect()
 
-    def get_dht_key_id_tl(self, id_: bytes, name: bytes = b'address', idx: int = 0):
+    def get_dht_key_id_tl(self, id_: typing.Union[bytes, str], name: bytes = b'address', idx: int = 0):
+        if isinstance(id_, str):
+            id_ = bytes.fromhex(id_)
         dht_key_sch = self.schemas.get_by_name('dht.key')
         serialized = self.schemas.serialize(dht_key_sch, data={'id': id_.hex(), 'name': name, 'idx': idx})
         return hashlib.sha256(serialized).digest()
 
     @staticmethod
-    def get_dht_key_id(id_: bytes, name: bytes = b'address', idx: int = 0):
+    def get_dht_key_id(id_: typing.Union[bytes, str], name: bytes = b'address', idx: int = 0):
         """
         Same as the method above but without using TlGenerator
         """
+        if isinstance(id_, str):
+            id_ = bytes.fromhex(id_)
         to_hash = b'\x8f\xdeg\xf6' + id_ + len(name).to_bytes(1, 'big') + name + idx.to_bytes(4, 'little')
         return hashlib.sha256(to_hash).digest()
 
@@ -215,6 +220,44 @@ class DhtClient:
 
         data |= {'signature': signature}
         return await self.raw_store_value(data, try_find_after)
+
+    async def get_overlay_nodes(self, overlay_id: typing.Union[bytes, str], overlay_transport: OverlayTransport):
+        resp = await self.find_value(key=self.get_dht_key_id_tl(overlay_id, name=b'nodes'), timeout=30)
+        nodes = resp['value']['value']['nodes']
+        result = []
+        for node in nodes:
+            result.append(await self.get_overlay_node(node, overlay_transport))
+        return result
+
+    async def get_overlay_node(self, node: dict, overlay_transport: OverlayTransport) -> typing.Optional[OverlayNode]:
+        """
+        :param node: dict overlay.node TL schema
+        :param overlay_transport:
+        :return: OverlayNode or None
+        """
+        pub_k = bytes.fromhex(node['id']['key'])
+        adnl_addr = Server('', 0, pub_key=pub_k).get_key_id()
+
+        to_sign = self.schemas.serialize(
+            schema=self.schemas.get_by_name('overlay.node.toSign'),
+            data={'id': {'id': adnl_addr.hex()}, 'overlay': node['overlay'], 'version': node['version']}
+        )
+
+        if not verify_sign(pub_k, to_sign, node['signature']):
+            raise Exception('invalid node signature!')
+
+        try:
+            resp = await self.find_value(key=self.get_dht_key_id_tl(id_=adnl_addr), timeout=5)
+        except asyncio.TimeoutError:
+            return None
+
+        node_addr = resp['value']['value']['addrs'][0]
+        host = socket.inet_ntoa(struct.pack('>i', node_addr['ip']))
+        port = node_addr['port']
+        pub_k = base64.b64encode(bytes.fromhex(resp['value']['key']['id']['key'])).decode()
+
+        node = OverlayNode(peer_host=host, peer_port=port, peer_pub_key=pub_k, transport=overlay_transport)
+        return node
 
     @classmethod
     def from_config(cls, config: dict, adnl_transport: AdnlTransport):

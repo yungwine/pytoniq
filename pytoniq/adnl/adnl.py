@@ -1,9 +1,10 @@
 import asyncio
 import base64
+import inspect
 import logging
+import random
 import time
 import hashlib
-import types
 import typing
 from asyncio import transports
 from typing import Any
@@ -18,7 +19,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
     def __init__(self, timeout: int = 10):
         # https://github.com/eerimoq/asyncudp/blob/main/asyncudp/__init__.py
         self._error = None
-        self._packets = asyncio.Queue(1000)
+        self._packets = asyncio.Queue(10000)
         self.timeout = timeout
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -35,7 +36,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
         super().error_received(exc)
 
     async def receive(self):
-        return await asyncio.wait_for(self._packets.get(), self.timeout)  # TODO improve timeout
+        return await self._packets.get()
 
 
 class Node(Server):
@@ -73,7 +74,11 @@ class Node(Server):
     async def ping(self):
         while True:
             self.sending = True
-            await self.send_ping()
+            try:
+                await self.send_ping()
+            except asyncio.TimeoutError:  # todo
+                self.transport.peers.pop(self.key_id)
+                await self.disconnect()
             self.sending = False
             self.logger.debug(f'pinged {self.key_id.hex()}')
             await asyncio.sleep(3)
@@ -106,7 +111,7 @@ class AdnlTransport:
     def __init__(self,
                  private_key: bytes = None,
                  tl_schemas_path: str = None,
-                 local_address: tuple = ('0.0.0.0', 12000),
+                 local_address: tuple = ('0.0.0.0', None),
                  *args, **kwargs
                  ) -> None:
         """
@@ -117,12 +122,16 @@ class AdnlTransport:
         self.loop: asyncio.AbstractEventLoop = None
         self.timeout = kwargs.get('timeout', 10)
         self.listener = None
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.tasks: typing.Dict[str, asyncio.Future] = {}
         self.query_handlers: typing.Dict[str, typing.Callable] = {}
+        self.custom_handlers: typing.Dict[str, typing.Callable] = {}
 
         """########### connection ###########"""
         self.transport: asyncio.DatagramTransport = None
         self.protocol: SocketProtocol = None
+        if local_address[1] is None:
+            local_address = local_address[0], random.randint(10000, 60000)
         self.local_address = local_address
 
         """########### TL ###########"""
@@ -229,9 +238,10 @@ class AdnlTransport:
                     decrypted = channel.decrypt(encrypted, checksum)
                     assert hashlib.sha256(decrypted).digest() == checksum, 'invalid checksum'
                     return decrypted, self.peers.get(peer_id)
-            raise AdnlTransportError(f'unknown key id from node: {key_id.hex()}')
+            # TODO make new connection
+            self.logger.debug(f'unknown key id from node: {key_id.hex()}')
 
-    def process_outcoming_message(self, message: dict) -> typing.Optional[asyncio.Future]:
+    def _process_outcoming_message(self, message: dict) -> typing.Optional[asyncio.Future]:
         future = self.loop.create_future()
         type_ = message['@type']
         if type_ == 'adnl.message.query':
@@ -239,19 +249,19 @@ class AdnlTransport:
         elif type_ == 'adnl.message.createChannel':
             self.tasks[message.get('key')] = future
         else:
-            raise AdnlTransportError(f'unexpected message sending as a client: {message}')
+            return
         return future
 
     def _create_futures(self, data: dict) -> typing.List[asyncio.Future]:
         futures = []
         if data.get('message'):
-            future = self.process_outcoming_message(data['message'])
+            future = self._process_outcoming_message(data['message'])
             if future is not None:
                 futures.append(future)
 
         if data.get('messages'):
             for message in data['messages']:
-                future = self.process_outcoming_message(message)
+                future = self._process_outcoming_message(message)
                 if future is not None:
                     futures.append(future)
         return futures
@@ -260,27 +270,100 @@ class AdnlTransport:
     async def _receive(futures: typing.List[asyncio.Future]) -> list:
         return list(await asyncio.gather(*futures))
 
-    async def process_incoming_message(self, message: dict):
+    async def _process_incoming_message(self, message: dict, peer: Node):
         if message['@type'] == 'adnl.message.answer':
             future = self.tasks.pop(message.get('query_id'))
             future.set_result(message['answer'])
         elif message['@type'] == 'adnl.message.confirmChannel':
-            future = self.tasks.pop(message.get('peer_key'))
-            future.set_result(message)
+            if message.get('peer_key') in self.tasks:
+                future = self.tasks.pop(message.get('peer_key'))
+                future.set_result(message)
         elif message['@type'] == 'adnl.message.query':
-            query = message.get('query')
-            handler = self.query_handlers.get(query['@type'])
-            if handler:
-                handler(query)
+            if peer is None:
+                self.logger.info(f'Received query message from unknown peer')
+                # not implemented, todo: make connection with new peer
+                return
+            await self._process_query_message(message, peer)
+        elif message['@type'] == 'adnl.message.custom':
+            if peer is None:
+                # should not ever happen fixme
+                self.logger.info(f'Received custom message from unknown peer')
+                return
+            await self._process_custom_message(message, peer)
         else:
-            raise AdnlTransportError(f'unexpected message type received as a client: {message}')
+            raise AdnlTransportError(f'unexpected message type received: {message}')
+
+    async def _process_query_message(self, message: dict, peer: Node):
+        query = message.get('query')
+        # it's divided into separate method because some higher level protocols over ADNL need specific query processing
+        await self._process_query_handler(message, query, peer)
+
+    async def _process_query_handler(self, message: dict, query: dict, peer: Node):
+        # try to get handler for specific query and if there is no, try to get default handler
+        handler = self.query_handlers.get(query['@type'], self.query_handlers.get(None))
+        if handler:
+            if inspect.iscoroutinefunction(handler):
+                response = await handler(query)
+            else:
+                response = handler(query)
+            if response is not None:
+                await self.send_answer_message(response, message.get('query_id'), peer)
+
+    async def _process_custom_message(self, message: dict, peer: Node):
+        data = message.get('data')
+        await self._process_custom_message_handler(data, peer)
+
+    async def _process_custom_message_handler(self, data: dict, peer: Node):
+        handler = self.custom_handlers.get(data['@type'], self.custom_handlers.get(None))
+        if handler:
+            if inspect.iscoroutinefunction(handler):
+                response = await handler(data)
+            else:
+                response = handler(data)
+            if response is not None:
+                await self.send_custom_message(response, peer)
+
+    def set_query_handler(self, type_: str, handler: typing.Callable) -> None:
+        """
+        :param type_: TL type of message
+        :param handler: function to handle message. **Must** return dict or bytes or None. If
+            None returned than answer won't be sent to the sender
+        :return:
+        """
+        self.query_handlers[type_] = handler
+
+    def set_default_query_handler(self, handler: typing.Callable):
+        """
+        Same as `set_query_handler` when there is no handlers for query specific type.
+        :param handler:
+        :return:
+        """
+        self.set_query_handler(None, handler)
+
+    def set_custom_message_handler(self, type_: str, handler: typing.Callable):
+        """
+        :param type_: TL type of message
+        :param handler: function to handle message. **Must** return dict or bytes or None. If
+            None returned than answer won't be sent to the sender.
+        :return:
+        """
+        self.custom_handlers[type_] = handler
+
+    def set_default_custom_message_handler(self, handler: typing.Callable):
+        """
+        Same as `set_custom_message_handler` when there is no handlers for query specific type.
+        :param handler:
+        :return:
+        """
+        self.set_custom_message_handler(None, handler)
 
     async def listen(self):
         while True:
             if not self.tasks:
-                await asyncio.sleep(0)
-                continue
-            packet, addr = await self.protocol.receive()
+                packet, addr = await self.protocol.receive()
+            else:
+                packet, addr = await self.protocol.receive()
+
             decrypted, peer = self._decrypt_any(packet)
             if decrypted is None:
                 continue
@@ -294,10 +377,10 @@ class AdnlTransport:
             messages = response.get('messages')
 
             if message:
-                await self.process_incoming_message(message)
+                await self._process_incoming_message(message, peer)
             if messages:
                 for message in messages:
-                    await self.process_incoming_message(message)
+                    await self._process_incoming_message(message, peer)
 
     async def send_message_in_channel(self, data: dict, channel: typing.Optional[AdnlChannel] = None, peer: Node = None) -> list:
 
@@ -357,25 +440,33 @@ class AdnlTransport:
             peer.inc_seqno()
         else:
             raise Exception(f'sending seqno {sending_seqno}, client seqno: {peer.seqno}')
-
-        result = await asyncio.wait_for(self._receive(futures), self.timeout)
-        return result
+        if futures:
+            result = await asyncio.wait_for(self._receive(futures), self.timeout)
+            return result
 
     async def start(self):
         self.loop = asyncio.get_running_loop()
         self.transport, self.protocol = await self.loop.create_datagram_endpoint(
             lambda: SocketProtocol(timeout=self.timeout),
-            local_addr=self.local_address
+            local_addr=self.local_address,
+            reuse_port=True
         )
         self.listener = self.loop.create_task(self.listen())
         return
 
+    def _get_default_message(self):
+        return {
+            '@type': 'adnl.message.query',
+            'query_id': get_random(32),
+            'query': self.schemas.get_by_name('dht.getSignedAddressList').little_id()
+        }
+
     async def connect_to_peer(self, peer: Node) -> list:
         """
         Connects to the peer, creates channel and asks for a signed list in channel.
-        :return: response dict for dht.getSignedAddressList
+        :param peer: peer connect to
+        :return: response dict for default message
         """
-        # self.transport, self.protocol = await self.loop.create_datagram_endpoint(lambda: SocketProtocol(timeout=self.timeout))
 
         ts = int(time.time())
         channel_client = Client(Client.generate_ed25519_private_key())
@@ -385,16 +476,13 @@ class AdnlTransport:
             'date': ts
         }
 
-        get_addr_list_message = {
-            '@type': 'adnl.message.query',
-            'query_id': get_random(32),
-            'query': self.schemas.get_by_name('dht.getSignedAddressList').little_id()
-        }
+        default_message = self._get_default_message()
 
         from_ = self.schemas.serialize(self.schemas.get_by_name('pub.ed25519'), data={'key': self.client.ed25519_public.encode().hex()})
         data = {
             'from': from_,
-            'messages': [create_channel_message, get_addr_list_message],
+            'from_short': {'id': self.client.get_key_id().hex()},
+            'messages': [create_channel_message, default_message],
             'address': {
                 'addrs': [],
                 'version': ts,
@@ -418,22 +506,16 @@ class AdnlTransport:
         self.channels[peer.get_key_id()] = channel
         peer.channels.append(channel)
 
-        # test channel:  todo remove
-
-        data = {
-            'message': get_addr_list_message,
-        }
-
-        result = await self.send_message_in_channel(data, channel, peer)
         peer.start_ping()
         peer.connected = True
+        self.peers[peer.key_id] = peer
 
-        return result
+        return messages[1]
 
     async def close(self):
         self.transport.close()
 
-    async def send_query_message(self, tl_schema_name: str, data: dict, peer: Node) -> list[dict]:
+    async def send_query_message(self, tl_schema_name: str, data: dict, peer: Node) -> typing.List[dict]:
         message = {
             '@type': 'adnl.message.query',
             'query_id': get_random(32),
@@ -450,10 +532,19 @@ class AdnlTransport:
         result = await self.send_message_in_channel(data, None, peer)
         return result
 
-    async def send_answer_message(self, ):
-        pass
-    async def send_custom_message(self, message: bytes, peer) -> list:
-        # TODO test
+    async def send_answer_message(self, response: typing.Union[dict, bytes], query_id: bytes, peer: Node):
+        message = {
+            '@type': 'adnl.message.answer',
+            'query_id': query_id,
+            'answer': response
+        }
+
+        data = {
+            'message': message,
+        }
+        return await self.send_message_in_channel(data, None, peer)
+
+    async def send_custom_message(self, message: typing.Union[dict, bytes], peer: Node) -> list:
 
         custom_message = {
             '@type': 'adnl.message.custom',
@@ -464,5 +555,5 @@ class AdnlTransport:
             'message': custom_message,
         }
 
-        result = await self.send_message_in_channel(data, peer)
+        result = await self.send_message_in_channel(data, None, peer)
         return result

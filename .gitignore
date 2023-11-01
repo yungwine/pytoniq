@@ -161,6 +161,10 @@ cython_debug/
 /test/primitives/mytonlib_test.py
 /test/primitives/usr/
 .idea
-/tests/contracts/wallets/priv_key.py
+/feats/contracts/wallets/priv_key.py
 /pytoniq/tlb/code_generator.py
 /main.py
+/venv39
+/venv_new
+/feats
+.DS_Store
