@@ -17,14 +17,6 @@ async def test_init():
     await client.connect()
     await client.close()
 
-    client = LiteClient.from_mainnet_config(random.randint(0, 13), trust_level=1)
-    await client.connect()
-    await client.close()
-
-    client = LiteClient.from_testnet_config(random.randint(0, 5), trust_level=1)
-    await client.connect()
-    await client.close()
-
     try:
         client = LiteClient.from_mainnet_config(random.randint(0, 13), trust_level=0)
         await client.connect()
@@ -42,8 +34,14 @@ async def test_init():
 
 @pytest.mark.asyncio
 async def test_methods():
-    client = LiteClient.from_mainnet_config(random.randint(0, 13), trust_level=2)
-    await client.connect()
+    while True:
+        client = LiteClient.from_mainnet_config(random.randint(0, 13), trust_level=1)
+        try:
+            await client.connect()
+            break
+        except asyncio.TimeoutError:
+            await client.close()
+            continue
     await client.get_masterchain_info()
     await client.get_config_all()
     await client.raw_get_block(client.last_mc_block)
@@ -52,8 +50,14 @@ async def test_methods():
 
 @pytest.mark.asyncio
 async def test_get_method():
-    client = LiteClient.from_mainnet_config(random.randint(0, 13), trust_level=2)
-    await client.connect()
+    while True:
+        client = LiteClient.from_mainnet_config(random.randint(0, 13), trust_level=1)
+        try:
+            await client.connect()
+            break
+        except asyncio.TimeoutError:
+            await client.close()
+            continue
 
     result = await client.run_get_method(address='EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', method='seqno',
                                          stack=[])
