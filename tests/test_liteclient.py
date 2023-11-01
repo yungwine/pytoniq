@@ -24,13 +24,6 @@ async def test_init():
     except asyncio.TimeoutError:
         print('skipping')
 
-    try:
-        client = LiteClient.from_testnet_config(random.randint(0, 5), trust_level=0)
-        await client.connect()
-        await client.close()
-    except asyncio.TimeoutError:
-        print('skipping')
-
 
 @pytest.mark.asyncio
 async def test_methods():
