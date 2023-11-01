@@ -1,8 +1,5 @@
-import asyncio
-import hashlib
 import logging
-import time
-from pytoniq_core.crypto.ciphers import Server
+import pytest
 
 from pytoniq.adnl.adnl import AdnlTransport
 from pytoniq.adnl.dht import DhtClient, DhtNode
@@ -14,6 +11,7 @@ adnl = AdnlTransport(timeout=5)
 client = DhtClient.from_mainnet_config(adnl)
 
 
+@pytest.mark.asyncio
 async def test_dht():
     logging.basicConfig(level=logging.DEBUG)
     await adnl.start()

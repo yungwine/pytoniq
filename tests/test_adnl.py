@@ -1,5 +1,5 @@
 import asyncio
-import logging
+import pytest
 
 from pytoniq.adnl.adnl import AdnlTransport, Node
 
@@ -7,6 +7,7 @@ from pytoniq.adnl.adnl import AdnlTransport, Node
 adnl = AdnlTransport(timeout=3)
 
 
+@pytest.mark.asyncio
 async def test_connection():
 
     # start adnl receiving server
