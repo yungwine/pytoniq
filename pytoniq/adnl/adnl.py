@@ -121,7 +121,7 @@ class AdnlTransport:
         """########### init ###########"""
         self.loop: asyncio.AbstractEventLoop = None
         self.timeout = kwargs.get('timeout', 10)
-        self.listener = None
+        self.listener: asyncio.Task = None
         self.logger = logging.getLogger(self.__class__.__name__)
         self.tasks: typing.Dict[str, asyncio.Future] = {}
         self.query_handlers: typing.Dict[str, typing.Callable] = {}
@@ -513,7 +513,10 @@ class AdnlTransport:
         return messages[1]
 
     async def close(self):
-        self.transport.close()
+        self.listener.cancel()
+        while not self.listener.cancelled():
+            await asyncio.sleep(0.01)
+        self.transport.abort()
 
     async def send_query_message(self, tl_schema_name: str, data: dict, peer: Node) -> typing.List[dict]:
         message = {
