@@ -9,7 +9,7 @@ from pytoniq import LiteClient
 
 @pytest.mark.asyncio
 async def test_init():
-    client = LiteClient.from_mainnet_config(random.randint(0, 13), trust_level=2)
+    client = LiteClient.from_mainnet_config(random.randint(0, 8), trust_level=2)
     await client.connect()
     await client.close()
 
@@ -18,7 +18,7 @@ async def test_init():
     await client.close()
 
     try:
-        client = LiteClient.from_mainnet_config(random.randint(0, 13), trust_level=0)
+        client = LiteClient.from_mainnet_config(random.randint(0, 8), trust_level=0)
         await client.connect()
         await client.close()
     except asyncio.TimeoutError:
@@ -35,7 +35,7 @@ async def test_init():
 @pytest.mark.asyncio
 async def test_methods():
     while True:
-        client = LiteClient.from_mainnet_config(random.randint(0, 13), trust_level=1)
+        client = LiteClient.from_mainnet_config(random.randint(0, 8), trust_level=1)
         try:
             await client.connect()
             break
@@ -51,7 +51,7 @@ async def test_methods():
 @pytest.mark.asyncio
 async def test_get_method():
     while True:
-        client = LiteClient.from_mainnet_config(random.randint(0, 13), trust_level=1)
+        client = LiteClient.from_mainnet_config(random.randint(0, 8), trust_level=1)
         try:
             await client.connect()
             break
