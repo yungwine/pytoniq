@@ -19,7 +19,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
     def __init__(self, timeout: int = 10):
         # https://github.com/eerimoq/asyncudp/blob/main/asyncudp/__init__.py
         self._error = None
-        self._packets = asyncio.Queue(1000)
+        self._packets = asyncio.Queue(10000)
         self.timeout = timeout
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -74,7 +74,11 @@ class Node(Server):
     async def ping(self):
         while True:
             self.sending = True
-            await self.send_ping()
+            try:
+                await self.send_ping()
+            except asyncio.TimeoutError:  # todo
+                self.transport.peers.pop(self.key_id)
+                await self.disconnect()
             self.sending = False
             self.logger.debug(f'pinged {self.key_id.hex()}')
             await asyncio.sleep(3)
