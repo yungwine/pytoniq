@@ -240,6 +240,7 @@ class AdnlTransport:
                     return decrypted, self.peers.get(peer_id)
             # TODO make new connection
             self.logger.debug(f'unknown key id from node: {key_id.hex()}')
+            return b'', None
 
     def _process_outcoming_message(self, message: dict) -> typing.Optional[asyncio.Future]:
         future = self.loop.create_future()
@@ -365,7 +366,7 @@ class AdnlTransport:
                 packet, addr = await self.protocol.receive()
 
             decrypted, peer = self._decrypt_any(packet)
-            if decrypted is None:
+            if not decrypted:
                 continue
             response = self.schemas.deserialize(decrypted)[0]
             if peer is not None:

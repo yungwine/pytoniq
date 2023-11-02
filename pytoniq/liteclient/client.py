@@ -888,7 +888,7 @@ class LiteClient:
     @classmethod
     def from_config(cls, config: dict, ls_i: int = 0, trust_level: int = 2, timeout: int = 10):
         ls = config['liteservers'][ls_i]
-        init_block = config['validator']['init_block']
+        init_block = config['validator']['init_block'].copy()
         init_block['file_hash'] = base64.b64decode(init_block['file_hash']).hex()
         init_block['root_hash'] = base64.b64decode(init_block['root_hash']).hex()
         init_block = BlockIdExt.from_dict(init_block)

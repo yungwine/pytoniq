@@ -34,7 +34,7 @@ async def main():
     # ask peer for something
     await peer.get_signed_address_list()
     await adnl.close()
-    return
+
 
     # send pings to peer
     await asyncio.sleep(2)
