@@ -59,6 +59,7 @@ class Node(Server):
         self.pinger: asyncio.Task = None
         self.connected = False
         self.logger = logging.getLogger(self.__class__.__name__)
+        self._lost_pings = 0
 
     async def connect(self):
         return await self.transport.connect_to_peer(self)
@@ -73,13 +74,15 @@ class Node(Server):
 
     async def ping(self):
         while True:
-            self.sending = True
             try:
                 await self.send_ping()
-            except asyncio.TimeoutError:  # todo
-                self.transport.peers.pop(self.key_id)
-                await self.disconnect()
-            self.sending = False
+            except asyncio.TimeoutError:
+                self._lost_pings += 1
+                if self._lost_pings > 3:
+                    self.transport.peers.pop(self.key_id)
+                    await self.disconnect()
+                else:
+                    continue
             self.logger.debug(f'pinged {self.key_id.hex()}')
             await asyncio.sleep(3)
 
