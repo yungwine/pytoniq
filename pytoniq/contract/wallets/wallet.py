@@ -232,7 +232,7 @@ class WalletV4(BaseWallet):
             else:
                 signing_message.store_uint(int(time.time()) + 60, 32)
         signing_message.store_uint(seqno, 32)
-        signing_message.store_uint(op_code, 32)
+        signing_message.store_uint(op_code, 8)
         for m in messages:
             signing_message.store_cell(m.serialize())
         signing_message = signing_message.end_cell()
