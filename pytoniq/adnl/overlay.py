@@ -52,14 +52,19 @@ class OverlayTransport(AdnlTransport):
         self.overlay_id = overlay_id
 
     @staticmethod
-    def get_overlay_id(workchain: int = 0, shard: int = -9223372036854775808) -> str:
+    def get_overlay_id(zero_state_file_hash: typing.Union[bytes, str],
+                       workchain: int = 0, shard: int = -9223372036854775808) -> str:
+
+        if isinstance(zero_state_file_hash, bytes):
+            zero_state_file_hash = zero_state_file_hash.hex()
+
         schemes = TlGenerator.with_default_schemas().generate()
 
         sch = schemes.get_by_name('tonNode.shardPublicOverlayId')
         data = {
             "workchain": workchain,
             "shard": shard,
-            "zero_state_file_hash": "5e994fcf4d425c0a6ce6a792594b7173205f740a39cd56f537defd28b48a0f6e"
+            "zero_state_file_hash": zero_state_file_hash
         }
 
         key_id = hashlib.sha256(schemes.serialize(sch, data)).digest()
@@ -72,6 +77,14 @@ class OverlayTransport(AdnlTransport):
         key_id = schemes.serialize(sch, data)
 
         return hashlib.sha256(key_id).digest().hex()
+
+    @classmethod
+    def get_mainnet_overlay_id(cls, workchain: int = 0, shard: int = -9223372036854775808) -> str:
+        return cls.get_overlay_id('5e994fcf4d425c0a6ce6a792594b7173205f740a39cd56f537defd28b48a0f6e', workchain, shard)
+
+    @classmethod
+    def get_testnet_overlay_id(cls, workchain: int = 0, shard: int = -9223372036854775808) -> str:
+        return cls.get_overlay_id('67e20ac184b9e039a62667acc3f9c00f90f359a76738233379efa47604980ce8', workchain, shard)
 
     async def _process_query_message(self, message: dict, peer: OverlayNode):
         query = message.get('query')
