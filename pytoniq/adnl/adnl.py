@@ -129,6 +129,7 @@ class AdnlTransport:
         self.tasks: typing.Dict[str, asyncio.Future] = {}
         self.query_handlers: typing.Dict[str, typing.Callable] = {}
         self.custom_handlers: typing.Dict[str, typing.Callable] = {}
+        self._message_parts: typing.Dict[str, dict] = {}  # {'hash': {'remained': int, 'parts': list}}
 
         """########### connection ###########"""
         self.transport: asyncio.DatagramTransport = None
@@ -227,8 +228,11 @@ class AdnlTransport:
             checksum = resp_packet[64:96]
             encrypted = resp_packet[96:]
 
+            peer_crypto = Server('', 0, server_public_key)
+
             shared_key = get_shared_key(self.client.x25519_private.encode(),
-                                        Server('', 0, server_public_key).x25519_public.encode())
+                                        peer_crypto.x25519_public.encode())
+
             dec_cipher = create_aes_ctr_sipher_from_key_n_data(shared_key, checksum)
             decrypted = aes_ctr_decrypt(dec_cipher, encrypted)
             assert hashlib.sha256(decrypted).digest() == checksum, 'invalid checksum'
@@ -275,6 +279,8 @@ class AdnlTransport:
         return list(await asyncio.gather(*futures))
 
     async def _process_incoming_message(self, message: dict, peer: Node):
+        if peer:
+            self.logger.debug(f'Received message {message} from peer {peer.get_key_id().hex()}')
         if message['@type'] == 'adnl.message.answer':
             future = self.tasks.pop(message.get('query_id'))
             future.set_result(message['answer'])
@@ -284,18 +290,41 @@ class AdnlTransport:
                 future.set_result(message)
         elif message['@type'] == 'adnl.message.query':
             if peer is None:
-                self.logger.info(f'Received query message from unknown peer')
+                self.logger.info(f'Received query message from unknown peer: {message}')
                 # not implemented, todo: make connection with new peer
                 return
             await self._process_query_message(message, peer)
         elif message['@type'] == 'adnl.message.custom':
             if peer is None:
                 # should not ever happen fixme
-                self.logger.info(f'Received custom message from unknown peer')
+                self.logger.info(f'Received custom message from unknown peer: {message}')
                 return
             await self._process_custom_message(message, peer)
+        elif message['@type'] == 'adnl.message.part':
+            hash_ = message['hash']
+            if hash_ not in self._message_parts:
+                self._message_parts[hash_] = {'remained': message['total_size'], 'parts': []}
+
+            self._message_parts[hash_]['remained'] -= len(message['data'])
+            self._message_parts[hash_]['parts'].append(message)
+
+            if self._message_parts[hash_]['remained'] == 0:
+                data = self._collect_adnl_message_parts(hash_)
+                if isinstance(data, dict) and data['@type'] != 'adnl.message.part':  # to avoid infinity recursion, but should never happen
+                    await self._process_incoming_message(data, peer)
         else:
-            raise AdnlTransportError(f'unexpected message type received: {message}')
+            self.logger.info(f'unexpected message type received: {message}')
+            # raise AdnlTransportError(f'unexpected message type received: {message}')
+
+    def _collect_adnl_message_parts(self, hash_: str, deserialize_after: bool = True):
+        if hash_ not in self._message_parts:
+            raise AdnlTransportError(f'Provided hash not in message parts')
+        parts = sorted(self._message_parts[hash_]['parts'], key=lambda i: i['offset'])
+        full_data = b''
+        for part in parts:
+            full_data += part['data']
+        if deserialize_after:
+            return self.schemas.deserialize(full_data)[0]
 
     async def _process_query_message(self, message: dict, peer: Node):
         query = message.get('query')
@@ -363,15 +392,17 @@ class AdnlTransport:
 
     async def listen(self):
         while True:
-            if not self.tasks:
-                packet, addr = await self.protocol.receive()
-            else:
-                packet, addr = await self.protocol.receive()
+            packet, addr = await self.protocol.receive()
 
             decrypted, peer = self._decrypt_any(packet)
             if not decrypted:
                 continue
             response = self.schemas.deserialize(decrypted)[0]
+
+            if peer is None:
+                if 'from_short' in response:
+                    peer = self.peers.get(bytes.fromhex(response['from_short']['id']))
+
             if peer is not None:
                 received_confirm_seqno = response.get('confirm_seqno', 0)
                 if received_confirm_seqno > peer.confirm_seqno:
@@ -485,7 +516,7 @@ class AdnlTransport:
         from_ = self.schemas.serialize(self.schemas.get_by_name('pub.ed25519'), data={'key': self.client.ed25519_public.encode().hex()})
         data = {
             'from': from_,
-            'from_short': {'id': self.client.get_key_id().hex()},
+            # 'from_short': {'id': self.client.get_key_id().hex()},
             'messages': [create_channel_message, default_message],
             'address': {
                 'addrs': [],
@@ -519,7 +550,7 @@ class AdnlTransport:
     async def close(self):
         self.listener.cancel()
         while not self.listener.cancelled():
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0)
         self.transport.abort()
 
     async def send_query_message(self, tl_schema_name: str, data: dict, peer: Node) -> typing.List[dict]:
