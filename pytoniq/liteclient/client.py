@@ -153,10 +153,11 @@ class LiteClient:
 
             qid = result.get('query_id', result.get('random_id'))  # return query_id for ordinary requests, random_id for ping-pong requests, None for handshake
 
-            request = self.tasks.pop(qid)
+            request: asyncio.Future = self.tasks.pop(qid)
 
             result = result.get('answer', {})
-            request.set_result(result)
+            if not request.done():
+                request.set_result(result)
 
     async def connect(self) -> None:
         self.loop = asyncio.get_running_loop()
@@ -330,12 +331,14 @@ class LiteClient:
     async def get_version(self):
         return await self.liteserver_request('getVersion', {})
 
-    async def get_state(self, wc: int, shard: typing.Optional[int], seqno: int, root_hash: typing.Union[str, bytes], file_hash: typing.Union[str, bytes]):
-        # TODO doesnt work: {'code': -400, 'message': 'cannot request total state: possibly too large'}
+    async def get_state(self, wc: int, shard: typing.Optional[int],
+                        seqno: int, root_hash: typing.Union[str, bytes],
+                        file_hash: typing.Union[str, bytes]
+                        ) -> dict:
         block = self.pack_block_id_ext(wc=wc, shard=shard, seqno=seqno, root_hash=root_hash, file_hash=file_hash)
         return await self.liteserver_request('getState', block)
 
-    async def raw_get_block_header(self, block: BlockIdExt):
+    async def raw_get_block_header(self, block: BlockIdExt) -> Block:
         result = await self.liteserver_request('getBlockHeader', {'id': block.to_dict()} | {'mode': 0})
         h_proof = Cell.one_from_boc(result['header_proof'])
         block_id = BlockIdExt.from_dict(result['id'])
@@ -348,12 +351,24 @@ class LiteClient:
                 await self.get_mc_block_proof(known_block=self.last_key_block, target_block=block_id)
         return Block.deserialize(h_proof[0].begin_parse())
 
-    async def get_block_header(self, wc: int, shard: typing.Optional[int], seqno: int, root_hash: typing.Union[str, bytes], file_hash: typing.Union[str, bytes]):
+    async def get_block_header(self, wc: int, shard: typing.Optional[int], seqno: int,
+                               root_hash: typing.Union[str, bytes],
+                               file_hash: typing.Union[str, bytes]
+                               ) -> Block:
+        """
+        :param wc: block workchain
+        :param shard: block shard
+        :param seqno: block seqno
+        :param root_hash: block root hash
+        :param file_hash: block file hash
+        :return: block header
+        """
         block = self.pack_block_id_ext(wc=wc, shard=shard, seqno=seqno, root_hash=root_hash, file_hash=file_hash)
         return await self.raw_get_block_header(BlockIdExt.from_dict(block))
 
     async def lookup_block(self, wc: int, shard: int, seqno: int = -1,
-                           lt: typing.Optional[int] = None, utime: typing.Optional[int] = None) -> typing.Tuple[BlockIdExt, Block]:
+                           lt: typing.Optional[int] = None,
+                           utime: typing.Optional[int] = None) -> typing.Tuple[BlockIdExt, Block]:
         """
         :param wc: block workchain
         :param shard: block shard
@@ -396,11 +411,15 @@ class LiteClient:
                 await self.prove_block(block_id)
         return Block.deserialize(result_block.begin_parse())
 
-    async def get_block(self, wc: int, shard: typing.Optional[int], seqno: int, root_hash: typing.Union[str, bytes], file_hash: typing.Union[str, bytes]):
+    async def get_block(self, wc: int, shard: typing.Optional[int],
+                        seqno: int, root_hash: typing.Union[str, bytes],
+                        file_hash: typing.Union[str, bytes]) -> Block:
         block = self.pack_block_id_ext(wc=wc, shard=shard, seqno=seqno, root_hash=root_hash, file_hash=file_hash)
         return await self.raw_get_block(BlockIdExt.from_dict(block))
 
-    async def raw_get_account_state(self, address: typing.Union[str, Address], block: typing.Optional[BlockIdExt] = None) -> typing.Tuple[typing.Optional[Account], typing.Optional[ShardAccount]]:
+    async def raw_get_account_state(self, address: typing.Union[str, Address],
+                                    block: typing.Optional[BlockIdExt] = None
+                                    ) -> typing.Tuple[typing.Optional[Account], typing.Optional[ShardAccount]]:
         trusted = False
         if block is None or block == self.last_mc_block:
             block = self.last_mc_block
@@ -434,9 +453,13 @@ class LiteClient:
             address = Address(address)
         return SimpleAccount.from_raw((await self.raw_get_account_state(address))[0], address)
 
-    async def run_get_method(self, address: typing.Union[Address, str], method: typing.Union[int, str], stack: list) -> list:
+    async def run_get_method(self, address: typing.Union[Address, str],
+                             method: typing.Union[int, str], stack: list,
+                             block: BlockIdExt = None
+                             ) -> list:
         mode = 7  # 111
-        block = self.last_mc_block
+        if block is None:
+            block = self.last_mc_block
 
         if isinstance(address, str):
             address = Address(address)
@@ -465,7 +488,10 @@ class LiteClient:
 
         return VmStack.deserialize(Slice.one_from_boc(result['result']))
 
-    async def raw_get_shard_info(self, block: typing.Optional[BlockIdExt] = None, wc: int = 0, shard: int = -9223372036854775808, exact: bool = True):
+    async def raw_get_shard_info(self, block: typing.Optional[BlockIdExt] = None,
+                                 wc: int = 0, shard: int = -9223372036854775808,
+                                 exact: bool = True
+                                 ) -> ShardDescr:
         trusted = False
         if block is None or block == self.last_mc_block:
             block = self.last_mc_block
@@ -544,7 +570,9 @@ class LiteClient:
                 )
         return result
 
-    async def get_one_transaction(self, address: typing.Union[Address, str], lt: int, block: BlockIdExt) -> typing.Optional[Transaction]:
+    async def get_one_transaction(self, address: typing.Union[Address, str],
+                                  lt: int, block: BlockIdExt
+                                  ) -> typing.Optional[Transaction]:
         if isinstance(address, str):
             address = Address(address)
 
@@ -574,7 +602,9 @@ class LiteClient:
 
         return Transaction.deserialize(transaction_root.begin_parse())
 
-    async def raw_get_transactions(self, address: typing.Union[Address, str], count: int, from_lt: int = None, from_hash: typing.Optional[bytes] = None) -> typing.Tuple[typing.List[Transaction], typing.List[BlockIdExt]]:
+    async def raw_get_transactions(self, address: typing.Union[Address, str], count: int,
+                                   from_lt: int = None, from_hash: typing.Optional[bytes] = None
+                                   ) -> typing.Tuple[typing.List[Transaction], typing.List[BlockIdExt]]:
         if isinstance(address, str):
             address = Address(address)
 
@@ -609,7 +639,17 @@ class LiteClient:
         # assert len(tr_result) == count, f'expected {count} transactions, got {len(tr_result)}'
         return tr_result, block_ids
 
-    async def get_transactions(self, address: typing.Union[Address, str], count: int, from_lt: int = None, from_hash: typing.Optional[bytes] = None) -> typing.List[Transaction]:
+    async def get_transactions(self, address: typing.Union[Address, str], count: int,
+                               from_lt: int = None, from_hash: typing.Optional[bytes] = None
+                               ) -> typing.List[Transaction]:
+        """
+        Returns account transactions
+        :param address:
+        :param count:
+        :param from_lt:
+        :param from_hash:
+        :return:
+        """
         result: typing.List[Transaction] = []
 
         for i in range(0, count, 16):
@@ -676,7 +716,14 @@ class LiteClient:
 
         return tr_result
 
-    async def raw_get_mc_block_proof(self, known_block: BlockIdExt, target_block: typing.Optional[BlockIdExt] = None, return_best_key_block=False) -> typing.Tuple[bool, BlockIdExt, typing.Optional[BlockIdExt], typing.Optional[int]]:
+    async def raw_get_mc_block_proof(self, known_block: BlockIdExt, target_block: typing.Optional[BlockIdExt] = None,
+                                     return_best_key_block=False
+                                     ) -> typing.Tuple[
+                                                        bool,
+                                                        BlockIdExt,
+                                                        typing.Optional[BlockIdExt],
+                                                        typing.Optional[int]
+                                        ]:
         """
         :param known_block: block you trust
         :param target_block: block you want to prove
@@ -757,7 +804,10 @@ class LiteClient:
                     last_trusted = to_block
         return last_trusted == target_block, last_trusted, best_key, best_key_ts
 
-    async def get_mc_block_proof(self, known_block: BlockIdExt, target_block: BlockIdExt, return_best_key_block=False):
+    async def get_mc_block_proof(self, known_block: BlockIdExt,
+                                 target_block: BlockIdExt,
+                                 return_best_key_block=False
+                                 ) -> typing.Tuple[typing.Optional[BlockIdExt], int]:
         self.logger.debug(msg=f'PROOF BLOCKS\nfrom: {known_block}\ntarget: {target_block}')
         last_proved = known_block
         best_key = None
@@ -770,13 +820,13 @@ class LiteClient:
         if return_best_key_block:
             return best_key, best_key_ts
 
-    async def prove_block(self, target_block: BlockIdExt):
+    async def prove_block(self, target_block: BlockIdExt) -> None:
         if target_block.workchain == -1:
             await self.get_mc_block_proof(self.last_key_block, target_block)
         else:
             await self.get_shard_block_proof(target_block, True)
 
-    def unpack_config(self, block: BlockIdExt, config_proof: Cell, state_proof: Cell):
+    def unpack_config(self, block: BlockIdExt, config_proof: Cell, state_proof: Cell) -> dict:
         if self.trust_level <= 1:
             state_hash = check_block_header_proof(state_proof[0], block.root_hash, True)
             if config_proof[0].get_hash(0) != state_hash:
@@ -792,7 +842,7 @@ class LiteClient:
 
         return config_res
 
-    async def get_config_all(self, blk: typing.Optional[BlockIdExt] = None):
+    async def get_config_all(self, blk: typing.Optional[BlockIdExt] = None) -> dict:
         trusted = False
         if blk is None:
             blk = self.last_mc_block
@@ -811,7 +861,7 @@ class LiteClient:
         state_proof = Cell.one_from_boc(result['state_proof'])
         return self.unpack_config(blk, config_proof, state_proof)
 
-    async def get_config_params(self, params: typing.List[int], blk: typing.Optional[BlockIdExt] = None):
+    async def get_config_params(self, params: typing.List[int], blk: typing.Optional[BlockIdExt] = None) -> dict:
         trusted = False
         if blk is None:
             blk = self.last_mc_block
