@@ -1,4 +1,5 @@
 import asyncio
+import random
 import time
 import hashlib
 import typing
@@ -99,19 +100,20 @@ class OverlayTransport(AdnlTransport):
     async def _process_custom_message(self, message: dict, peer: Node):
         data = message.get('data')
         if isinstance(data, list):
-            if data[0]['@type'] == 'overlay.query':
+            if data[0]['@type'] in ('overlay.query', 'overlay.message'):
                 assert data[0]['overlay'] == self.overlay_id, 'Unknown overlay id received'
             data = data[-1]
-        if 'broadcast' in data['@type']:
+        if data['@type'] == 'overlay.broadcast':
             # Force broadcast spreading for the network stability. Can be removed in the future.
             # Note that this is almost takes no time to do and will be done in the background.
-            asyncio.create_task(self._spread_broadcast(message, ignore_errors=True))
+            asyncio.create_task(self.spread_broadcast(data, ignore_errors=True))
 
         await self._process_custom_message_handler(data, peer)
 
-    async def _spread_broadcast(self, message: dict, ignore_errors: bool = True):
+    async def spread_broadcast(self, message: dict, ignore_errors: bool = True):
         tasks = []
-        for _, peer in self.peers.items():
+        peers = random.choices(list(self.peers.items()), k=3)  # https://github.com/ton-blockchain/ton/blob/e30049930a7372a3c1d28a1e59956af8eb489439/overlay/overlay-broadcast.cpp#L69
+        for _, peer in peers:
             tasks.append(self.send_custom_message(message, peer))
         result = await asyncio.gather(*tasks, return_exceptions=ignore_errors)
         failed = 0
@@ -156,6 +158,21 @@ class OverlayTransport(AdnlTransport):
         result = await self.send_message_in_channel(data, None, peer)
         return result
 
+    async def send_custom_message(self, message: typing.Union[dict, bytes], peer: Node) -> list:
+
+        custom_message = {
+            '@type': 'adnl.message.custom',
+            'data': (self.schemas.serialize(self.schemas.get_by_name('overlay.message'), data={'overlay': self.overlay_id}) +
+                     self.schemas.serialize(self.schemas.get_by_name(message['@type']), message))
+        }
+
+        data = {
+            'message': custom_message,
+        }
+
+        result = await self.send_message_in_channel(data, None, peer)
+        return result
+
     def get_message_with_overlay_prefix(self, schema_name: str, data: dict) -> bytes:
         return (self.schemas.serialize(
                     schema=self.schemas.get_by_name('overlay.query'),
@@ -186,3 +203,25 @@ class OverlayTransport(AdnlTransport):
 
     async def get_capabilities(self, peer: OverlayNode):
         return await self.send_query_message(tl_schema_name='tonNode.getCapabilities', data={}, peer=peer)
+
+    async def raw_download_block(self, block: BlockIdExt, peer: OverlayNode) -> bytes:
+        """
+        :param block:
+        :param peer:
+        :return: block boc
+        """
+        return (await self.send_query_message(tl_schema_name='tonNode.downloadBlock',
+                                              data={'block': block.to_dict()}, peer=peer))[0]
+
+    async def download_block(self, block: BlockIdExt, peer: OverlayNode) -> Block:
+        """
+        :param block:
+        :param peer:
+        :return: deserialized block
+        """
+        blk_boc = await self.raw_download_block(block, peer)
+        return Block.deserialize(Slice.one_from_boc(blk_boc))
+
+    async def prepare_block(self, block: BlockIdExt, peer: OverlayNode) -> dict:
+        return (await self.send_query_message(tl_schema_name='tonNode.prepareBlock',
+                                              data={'block': block.to_dict()}, peer=peer))[0]
