@@ -1,9 +1,11 @@
+import asyncio
 import time
 import hashlib
 import typing
 
 from pytoniq_core.tl.generator import TlGenerator
 
+from pytoniq_core import BlockIdExt, Block, Slice
 from pytoniq_core.crypto.ciphers import get_random
 
 from .adnl import Node, AdnlTransport, AdnlTransportError
@@ -100,7 +102,23 @@ class OverlayTransport(AdnlTransport):
             if data[0]['@type'] == 'overlay.query':
                 assert data[0]['overlay'] == self.overlay_id, 'Unknown overlay id received'
             data = data[-1]
+        if 'broadcast' in data['@type']:
+            # Force broadcast spreading for the network stability. Can be removed in the future.
+            # Note that this is almost takes no time to do and will be done in the background.
+            asyncio.create_task(self._spread_broadcast(message, ignore_errors=True))
+
         await self._process_custom_message_handler(data, peer)
+
+    async def _spread_broadcast(self, message: dict, ignore_errors: bool = True):
+        tasks = []
+        for _, peer in self.peers.items():
+            tasks.append(self.send_custom_message(message, peer))
+        result = await asyncio.gather(*tasks, return_exceptions=ignore_errors)
+        failed = 0
+        for r in result:
+            if isinstance(r, Exception):
+                failed += 1
+        self.logger.debug(f'Spread broadcast: {failed} failed out of {len(result)}')
 
     def get_signed_myself(self):
         ts = int(time.time())
@@ -117,7 +135,13 @@ class OverlayTransport(AdnlTransport):
         overlay_node = overlay_node_data | {'signature': signature}
         return overlay_node
 
-    async def send_query_message(self, tl_schema_name: str, data: dict, peer: Node) -> typing.List[dict]:
+    async def send_query_message(self, tl_schema_name: str, data: dict, peer: Node) -> typing.List[typing.Union[dict, bytes]]:
+        """
+        :param tl_schema_name:
+        :param data:
+        :param peer:
+        :return: dict if response was known TL schema, bytes otherwise
+        """
 
         message = {
             '@type': 'adnl.message.query',
