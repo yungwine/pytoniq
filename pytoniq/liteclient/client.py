@@ -923,11 +923,10 @@ class LiteClient:
             check_block_header_proof(proof[0], last_shard_blk.root_hash)
             shrd_blk = Block.deserialize(proof[0].begin_parse())
             prev_blk = shrd_blk.info.prev_ref.prev
-
             last_shard_blk = BlockIdExt.from_dict(prev_blk.__dict__ | {'workchain': last_shard_blk.workchain, 'shard': last_shard_blk.shard})
-            if last_shard_blk == blk:
-                return
-            raise LiteClientError('incorrect proof')
+        if last_shard_blk == blk:
+            return
+        raise LiteClientError('incorrect proof')
 
     async def raw_send_message(self, message: bytes):
         data = {'body': message}
