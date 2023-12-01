@@ -1,6 +1,6 @@
 import typing
 
-from ..liteclient.client import LiteClient
+from ..liteclient import LiteClientLike
 from pytoniq_core.boc.cell import Cell
 from pytoniq_core.boc.address import Address
 from pytoniq_core.tlb.account import StateInit, Account, SimpleAccount, ShardAccount
@@ -14,7 +14,7 @@ class ContractError(BaseException):
 
 class Contract:
 
-    def __init__(self, provider: LiteClient, address: Address, account: typing.Optional[Account] = None,
+    def __init__(self, provider: LiteClientLike, address: Address, account: typing.Optional[Account] = None,
                  shard_account: typing.Optional[ShardAccount] = None, state_init: typing.Optional[StateInit] = None,
                  **kwargs):
         """
@@ -70,19 +70,19 @@ class Contract:
         return self.account.balance
 
     @classmethod
-    async def from_address(cls, provider: LiteClient, address: typing.Union[str, Address], **kwargs):
+    async def from_address(cls, provider: LiteClientLike, address: typing.Union[str, Address], **kwargs):
         if isinstance(address, str):
             address = Address(address)
         account, shard_account = await provider.raw_get_account_state(address)
         return cls(provider=provider, address=address, account=account, shard_account=shard_account, **kwargs)
 
     @classmethod
-    async def from_state_init(cls, provider: LiteClient, workchain: int, state_init: StateInit, **kwargs):
+    async def from_state_init(cls, provider: LiteClientLike, workchain: int, state_init: StateInit, **kwargs):
         address = Address((workchain, state_init.serialize().hash))
         return await cls.from_address(provider=provider, address=address, state_init=state_init, **kwargs)
 
     @classmethod
-    async def from_code_and_data(cls, provider: LiteClient, workchain: int, code: Cell, data: Cell, **kwargs):
+    async def from_code_and_data(cls, provider: LiteClientLike, workchain: int, code: Cell, data: Cell, **kwargs):
         state_init = StateInit(code=code, data=data)
         return await cls.from_state_init(provider=provider, workchain=workchain, state_init=state_init, **kwargs)
 

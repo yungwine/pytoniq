@@ -1,7 +1,7 @@
 import time
 import typing
 
-from ...liteclient.client import LiteClient
+from ...liteclient import LiteClientLike
 from ..contract import Contract, ContractError
 from pytoniq_core.crypto.keys import private_key_to_public_key, mnemonic_to_private_key, mnemonic_is_valid, mnemonic_new
 from pytoniq_core.crypto.signature import sign_message
@@ -60,7 +60,7 @@ class BaseWallet(Wallet):
     """
 
     @classmethod
-    async def from_private_key(cls, provider: LiteClient, private_key: bytes, wc: int = 0,
+    async def from_private_key(cls, provider: LiteClientLike, private_key: bytes, wc: int = 0,
                                wallet_id: typing.Optional[int] = None, version: str = 'v3r2'):
         public_key = private_key_to_public_key(private_key)
         if version == 'v3r2':
@@ -76,7 +76,7 @@ class BaseWallet(Wallet):
             raise Exception(f'Wallet version {version} does not supported')
 
     @classmethod
-    async def from_mnemonic(cls, provider: LiteClient, mnemonics: typing.Union[list, str], wc: int = 0,
+    async def from_mnemonic(cls, provider: LiteClientLike, mnemonics: typing.Union[list, str], wc: int = 0,
                             wallet_id: typing.Optional[int] = None, version: str = 'v3r2'):
         if isinstance(mnemonics, str):
             mnemonics = mnemonics.split()
@@ -85,7 +85,7 @@ class BaseWallet(Wallet):
         return await cls.from_private_key(provider, private_key, wc, wallet_id, version)
 
     @classmethod
-    async def create(cls, provider: LiteClient, wc: int = 0, wallet_id: typing.Optional[int] = None,
+    async def create(cls, provider: LiteClientLike, wc: int = 0, wallet_id: typing.Optional[int] = None,
                      version: str = 'v3r2'):
         """
         :param provider: provider
@@ -171,7 +171,7 @@ class BaseWallet(Wallet):
 class WalletV3(BaseWallet):
 
     @classmethod
-    async def from_code_and_data(cls, provider: LiteClient, code: Cell, public_key: bytes, wc: int = 0,
+    async def from_code_and_data(cls, provider: LiteClientLike, code: Cell, public_key: bytes, wc: int = 0,
                                  wallet_id: typing.Optional[int] = None, private_key: typing.Optional[bytes] = None):
         data = cls.create_data_cell(public_key, wallet_id, wc)
         return await super().from_code_and_data(provider, wc, code, data, private_key=private_key)
@@ -208,7 +208,7 @@ class WalletV3(BaseWallet):
 class WalletV4(BaseWallet):
 
     @classmethod
-    async def from_code_and_data(cls, provider: LiteClient, code: Cell, public_key: bytes, wc: int = 0,
+    async def from_code_and_data(cls, provider: LiteClientLike, code: Cell, public_key: bytes, wc: int = 0,
                                  wallet_id: typing.Optional[int] = None, **kwargs):
         data = cls.create_data_cell(public_key, wallet_id, wc)
         return await super().from_code_and_data(provider, wc, code, data, **kwargs)
@@ -283,13 +283,13 @@ class WalletV4(BaseWallet):
 class WalletV3R1(WalletV3):
 
     @classmethod
-    async def from_data(cls, provider: LiteClient, public_key: bytes, wc: int = 0,
+    async def from_data(cls, provider: LiteClientLike, public_key: bytes, wc: int = 0,
                         wallet_id: typing.Optional[int] = None, **kwargs):
         return await super().from_code_and_data(provider=provider, code=WALLET_V3_R1_CODE, public_key=public_key, wc=wc,
                                                 wallet_id=wallet_id, **kwargs)
 
     @classmethod
-    async def from_mnemonic(cls, provider: LiteClient, mnemonics: typing.Union[list, str], wc: int = 0,
+    async def from_mnemonic(cls, provider: LiteClientLike, mnemonics: typing.Union[list, str], wc: int = 0,
                             wallet_id: typing.Optional[int] = None):
         if isinstance(mnemonics, str):
             mnemonics = mnemonics.split()
@@ -298,7 +298,7 @@ class WalletV3R1(WalletV3):
         return await super().from_private_key(provider, private_key, wc, wallet_id, 'v3r1')
 
     @classmethod
-    async def create(cls, provider: LiteClient, wc: int = 0, wallet_id: typing.Optional[int] = None):
+    async def create(cls, provider: LiteClientLike, wc: int = 0, wallet_id: typing.Optional[int] = None):
         """
         :param provider: provider
         :param wc: wallet workchain
@@ -311,13 +311,13 @@ class WalletV3R1(WalletV3):
 class WalletV3R2(WalletV3):
 
     @classmethod
-    async def from_data(cls, provider: LiteClient, public_key: bytes, wc: int = 0,
+    async def from_data(cls, provider: LiteClientLike, public_key: bytes, wc: int = 0,
                         wallet_id: typing.Optional[int] = None, **kwargs):
         return await super().from_code_and_data(provider=provider, code=WALLET_V3_R2_CODE, public_key=public_key, wc=wc,
                                                 wallet_id=wallet_id, **kwargs)
 
     @classmethod
-    async def from_mnemonic(cls, provider: LiteClient, mnemonics: typing.Union[list, str], wc: int = 0,
+    async def from_mnemonic(cls, provider: LiteClientLike, mnemonics: typing.Union[list, str], wc: int = 0,
                             wallet_id: typing.Optional[int] = None):
         if isinstance(mnemonics, str):
             mnemonics = mnemonics.split()
@@ -326,7 +326,7 @@ class WalletV3R2(WalletV3):
         return await super().from_private_key(provider, private_key, wc, wallet_id, 'v3r2')
 
     @classmethod
-    async def create(cls, provider: LiteClient, wc: int = 0, wallet_id: typing.Optional[int] = None):
+    async def create(cls, provider: LiteClientLike, wc: int = 0, wallet_id: typing.Optional[int] = None):
         """
         :param provider: provider
         :param wc: wallet workchain
@@ -339,13 +339,13 @@ class WalletV3R2(WalletV3):
 class WalletV4R2(WalletV4):
 
     @classmethod
-    async def from_data(cls, provider: LiteClient, public_key: bytes, wc: int = 0,
+    async def from_data(cls, provider: LiteClientLike, public_key: bytes, wc: int = 0,
                         wallet_id: typing.Optional[int] = None, **kwargs):
         return await super().from_code_and_data(provider=provider, code=WALLET_V4_R2_CODE, public_key=public_key, wc=wc,
                                                 wallet_id=wallet_id, **kwargs)
 
     @classmethod
-    async def from_mnemonic(cls, provider: LiteClient, mnemonics: typing.Union[list, str], wc: int = 0,
+    async def from_mnemonic(cls, provider: LiteClientLike, mnemonics: typing.Union[list, str], wc: int = 0,
                             wallet_id: typing.Optional[int] = None):
         if isinstance(mnemonics, str):
             mnemonics = mnemonics.split()
@@ -354,7 +354,7 @@ class WalletV4R2(WalletV4):
         return await super().from_private_key(provider, private_key, wc, wallet_id, 'v4r2')
 
     @classmethod
-    async def create(cls, provider: LiteClient, wc: int = 0, wallet_id: typing.Optional[int] = None):
+    async def create(cls, provider: LiteClientLike, wc: int = 0, wallet_id: typing.Optional[int] = None):
         """
         :param provider: provider
         :param wc: wallet workchain

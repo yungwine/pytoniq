@@ -1,10 +1,9 @@
-import time
 import typing
 
 from .wallet import Wallet, WalletError
 from ..utils import generate_query_id
 from ..contract import Contract, ContractError
-from ...liteclient.client import LiteClient
+from ...liteclient import LiteClientLike
 from pytoniq_core.crypto.keys import private_key_to_public_key, mnemonic_to_private_key, mnemonic_is_valid, mnemonic_new
 from pytoniq_core.crypto.signature import sign_message
 from pytoniq_core.boc import Cell, Builder, HashMap
@@ -19,7 +18,7 @@ HIGHLOAD_WALLET_CODE = Cell.one_from_boc(
 class HighloadWallet(Wallet):
 
     @classmethod
-    async def from_data(cls, provider: LiteClient, public_key: bytes, wc: int = 0,
+    async def from_data(cls, provider: LiteClientLike, public_key: bytes, wc: int = 0,
                         wallet_id: typing.Optional[int] = None, **kwargs) -> "HighloadWallet":
         data = cls.create_data_cell(public_key, wallet_id, wc)
         return await super().from_code_and_data(provider, wc, HIGHLOAD_WALLET_CODE, data, **kwargs)
@@ -32,14 +31,14 @@ class HighloadWallet(Wallet):
         return HighloadWalletData(wallet_id=wallet_id, public_key=public_key, last_cleaned=0, old_queries=old_queries).serialize()
 
     @classmethod
-    async def from_private_key(cls, provider: LiteClient, private_key: bytes, wc: int = 0,
+    async def from_private_key(cls, provider: LiteClientLike, private_key: bytes, wc: int = 0,
                                wallet_id: typing.Optional[int] = None):
         public_key = private_key_to_public_key(private_key)
         return await cls.from_data(provider=provider, wc=wc, public_key=public_key, wallet_id=wallet_id,
                                    private_key=private_key)
 
     @classmethod
-    async def from_mnemonic(cls, provider: LiteClient, mnemonics: typing.Union[list, str], wc: int = 0,
+    async def from_mnemonic(cls, provider: LiteClientLike, mnemonics: typing.Union[list, str], wc: int = 0,
                             wallet_id: typing.Optional[int] = None):
         if isinstance(mnemonics, str):
             mnemonics = mnemonics.split()
@@ -48,7 +47,7 @@ class HighloadWallet(Wallet):
         return await cls.from_private_key(provider, private_key, wc, wallet_id)
 
     @classmethod
-    async def create(cls, provider: LiteClient, wc: int = 0, wallet_id: typing.Optional[int] = None):
+    async def create(cls, provider: LiteClientLike, wc: int = 0, wallet_id: typing.Optional[int] = None):
         """
         :param provider: provider
         :param wc: wallet workchain

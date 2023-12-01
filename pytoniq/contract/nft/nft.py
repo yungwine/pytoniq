@@ -1,5 +1,5 @@
 from ..contract import Contract, ContractError
-from ...liteclient.client import LiteClient
+from ...liteclient import LiteClientLike
 from pytoniq_core.boc import Cell, Builder, HashMap
 from pytoniq_core.boc.address import Address
 from pytoniq_core.tlb.custom.nft import NftItemData
@@ -10,7 +10,7 @@ NFT_CODE = Cell.one_from_boc(b'\xb5\xee\x9crA\x02\r\x01\x00\x01\xd0\x00\x01\x14\
 class NftItem(Contract):
 
     @classmethod
-    async def from_data(cls, provider: LiteClient, index: int, collection_address: Address, owner_address: Address, content: Cell, wc: int = 0, **kwargs) -> "NftItem":
+    async def from_data(cls, provider: LiteClientLike, index: int, collection_address: Address, owner_address: Address, content: Cell, wc: int = 0, **kwargs) -> "NftItem":
         data = cls.create_data_cell(index, collection_address, owner_address, content)
         return await super().from_code_and_data(provider, wc, NFT_CODE, data, **kwargs)
 
