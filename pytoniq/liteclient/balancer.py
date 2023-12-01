@@ -21,6 +21,8 @@ class LiteBalancer:
         self._peers = peers
         self._alive_peers: typing.Set[int] = set()
 
+        self._checker: asyncio.Task = None
+
         self._mc_blocks = {}  # {index: masterchain_seqno}
         self._av_resp_time = {}  # {index: average_response_time}
         self._total_req_num = {}  # {index: successful_requests_num}
@@ -60,7 +62,7 @@ class LiteBalancer:
             if result[i]:
                 self._alive_peers.add(i)
 
-        asyncio.create_task(self._check_peers())
+        self._checker = asyncio.create_task(self._check_peers())
 
     async def _connect_to_peer(self, client: LiteClient):
         if client.listener is not None and not client.listener.done():
@@ -163,14 +165,14 @@ class LiteBalancer:
         for i in range(len(self._peers)):
             self._update_mc_seqno(i)
 
-    async def execute_method(self, method: str, *args, **kwargs) -> typing.Union[dict, typing.Any]:
+    async def execute_method(self, method_name_: str, *args, **kwargs) -> typing.Union[dict, typing.Any]:
         for _ in range(self.max_retries):
             if not len(self._alive_peers):
                 raise BalancerError(f'have no alive peers')
             self._update_mc_seqnos()
             ind = self._choose_peer()
             peer: LiteClient = self._peers[ind]
-            peer_meth = getattr(peer, method, None)
+            peer_meth = getattr(peer, method_name_, None)
             self._current_req_num[ind] = self._current_req_num.get(ind, 0) + 1
             s = time.time_ns()
             if not peer_meth:
@@ -243,7 +245,7 @@ class LiteBalancer:
                              method: typing.Union[int, str], stack: list,
                              block: BlockIdExt = None
                              ) -> list:
-        return await self.execute_method('get_account_state', **self._get_args(locals()))
+        return await self.execute_method('run_get_method', **self._get_args(locals()))
 
     async def raw_get_shard_info(self,
                                  block: typing.Optional[BlockIdExt] = None,
@@ -318,6 +320,17 @@ class LiteBalancer:
 
     async def raw_send_message(self, message: bytes):
         return await self.execute_method('raw_send_message', **self._get_args(locals()))
+
+    async def close_all(self):
+        for peer in self._peers:
+            if peer.inited:
+                await peer.close()
+        self._checker.cancel()
+        while not self._checker.cancelled():
+            await asyncio.sleep(0)
+
+    async def close(self):
+        raise BalancerError('Use .close_all()')
 
     @classmethod
     def from_config(cls, config: dict, trust_level: int = 2, timeout: int = 10):

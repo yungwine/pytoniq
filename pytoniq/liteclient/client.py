@@ -2,7 +2,6 @@ import base64
 import hashlib
 import logging
 import asyncio
-import random
 import socket
 import struct
 import typing
@@ -85,12 +84,8 @@ class LiteClient:
         self.delta = 0.02  # listen delay
 
         self.listener: asyncio.Task = None
-        rand_int = str(random.randint(10**9, 3 * 10**9))
-        self.listener_name: str = 'listener' + rand_int
         self.pinger: asyncio.Task = None
-        self.pinger_name: str = 'pinger' + rand_int
         self.updater: asyncio.Task = None
-        self.updater_name: str = 'updater' + rand_int
 
         """########### TL ###########"""
         if tl_schemas_path is None:
@@ -164,10 +159,10 @@ class LiteClient:
         handshake = self.handshake()
         self.reader, self.writer = await asyncio.wait_for(asyncio.open_connection(self.server.host, self.server.port), self.timeout)
         future = await asyncio.wait_for(self.send(handshake, None), self.timeout)
-        self.listener = asyncio.create_task(self.listen(), name=self.listener_name)
+        self.listener = asyncio.create_task(self.listen())
         await self.update_last_blocks()
-        self.pinger = asyncio.create_task(self.ping(), name=self.pinger_name)
-        self.updater = asyncio.create_task(self.block_updater(), name=self.updater_name)
+        self.pinger = asyncio.create_task(self.ping())
+        self.updater = asyncio.create_task(self.block_updater())
         await future
         self.inited = True
 
@@ -176,11 +171,10 @@ class LiteClient:
         await self.connect()
 
     async def close(self) -> None:
-        for i in asyncio.all_tasks(self.loop):
-            if i.get_name() in {self.listener_name, self.pinger_name, self.updater_name}:
-                i.cancel()
-                while not i.cancelled():
-                    await asyncio.sleep(0.1)
+        for i in [self.pinger, self.updater, self.listener]:
+            i.cancel()
+            while not i.cancelled():
+                await asyncio.sleep(0.001)
         self.inited = False
         self.tasks = {}
         self.reader = None
