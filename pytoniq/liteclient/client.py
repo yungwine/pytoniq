@@ -662,7 +662,7 @@ class LiteClient:
         # assert len(result) == count, f'expected {count} transactions, got {len(result)}'
         return result
 
-    async def raw_get_block_transactions(self, block: BlockIdExt, count: int = 256) -> typing.List[dict]:
+    async def raw_get_block_transactions(self, block: BlockIdExt, count: int = 1024) -> typing.List[dict]:
         mode = 39  # 100111
         data = {'id': block.to_dict(), 'mode': mode, 'count': count, 'want_proof': b''}
         result = await self.liteserver_request('listBlockTransactions', data)
@@ -688,7 +688,7 @@ class LiteClient:
 
         return transactions_ids
 
-    async def raw_get_block_transactions_ext(self, block: BlockIdExt, count: int = 256) -> typing.List[Transaction]:
+    async def raw_get_block_transactions_ext(self, block: BlockIdExt, count: int = 1024) -> typing.List[Transaction]:
         mode = 39  # 100111
         data = {'id': block.to_dict(), 'mode': mode, 'count': count, 'want_proof': b''}
         result = await self.liteserver_request('listBlockTransactionsExt', data)
