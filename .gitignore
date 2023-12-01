@@ -168,3 +168,5 @@ cython_debug/
 /venv_new
 /feats
 .DS_Store
+/examples/.blockstore/
+/.blockstore/
