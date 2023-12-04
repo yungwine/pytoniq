@@ -2,7 +2,7 @@ import time
 import typing
 
 from ..contract import Contract, ContractError
-from ...liteclient.client import LiteClient
+from ...liteclient import LiteClientLike
 from pytoniq_core.boc import Cell, Builder, HashMap
 from pytoniq_core.boc.address import Address
 from pytoniq_core.tlb.custom.nft import NftItemSaleData, NftItemSaleFees
@@ -15,7 +15,7 @@ NFT_SALE_CODE = Cell.one_from_boc(b"\xb5\xee\x9crA\x02\x0b\x01\x00\x02\xb9\x00\x
 class NftItemSale(Contract):
 
     @classmethod
-    async def from_data(cls, provider: LiteClient, marketplace_address: Address, nft_address: Address, nft_owner_address: Address, full_price: int, fees: NftItemSaleFees, wc: int = 0, **kwargs) -> "NftItemSale":
+    async def from_data(cls, provider: LiteClientLike, marketplace_address: Address, nft_address: Address, nft_owner_address: Address, full_price: int, fees: NftItemSaleFees, wc: int = 0, **kwargs) -> "NftItemSale":
         data = cls.create_data_cell(is_complete=False, created_at=int(time.time()), marketplace_address=marketplace_address, nft_address=nft_address, nft_owner_address=nft_owner_address, full_price=full_price, fees=fees, can_deploy_by_external=True)
         return await super().from_code_and_data(provider, wc, NFT_SALE_CODE, data, **kwargs)
 

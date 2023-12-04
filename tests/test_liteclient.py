@@ -1,8 +1,5 @@
 import asyncio
-import logging
-
 import pytest
-
 import random
 from pytoniq import LiteClient
 
@@ -11,10 +8,12 @@ from pytoniq import LiteClient
 async def test_init():
     client = LiteClient.from_mainnet_config(random.randint(0, 8), trust_level=2)
     await client.connect()
+    await client.reconnect()
     await client.close()
 
     client = LiteClient.from_testnet_config(random.randint(0, 5), trust_level=2)
     await client.connect()
+    await client.reconnect()
     await client.close()
 
     # try:
