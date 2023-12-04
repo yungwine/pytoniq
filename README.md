@@ -96,6 +96,21 @@ await client.close_all()
 
 ```
 
+Moreover, one of the most important features of `LiteBalancer` is that it detects [archival](https://docs.ton.org/participate/run-nodes/archive-node#overview) LiteServers,
+so you can do requests only to archival LiteServers providing `True` for argument `only_archive` in **any** method:
+
+```python
+# ask for very very old block
+blk, _ = await client.lookup_block(-1, -2**63, 100, only_archive=True)  
+
+# ask for old block and run get method for that block:
+blk, _ = await client.lookup_block(-1, -2**63, 25000000, only_archive=True)
+result = await client.run_get_method(address='EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', method='seqno',
+                                             stack=[], block=blk, only_archive=True)
+
+```
+
+
 ### Blockstore
 The library can prove all data it receives from a Liteserver (Learn about trust levels [here](https://yungwine.gitbook.io/pytoniq-doc/liteclient/trust-levels)).
 If you want to use `LiteClient` or `LiteBalancer` with the zero trust level, at the first time run library will prove block link from the `init_block` to the last masterchain block.
