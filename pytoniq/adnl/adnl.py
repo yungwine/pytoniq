@@ -76,15 +76,15 @@ class Node(Server):
         while True:
             try:
                 await self.send_ping()
+                self._lost_pings = 0
+                self.logger.debug(f'pinged {self.key_id.hex()}')
             except asyncio.TimeoutError:
                 self._lost_pings += 1
                 if self._lost_pings > 3:
-                    self.transport.peers.pop(self.key_id)
+                    if self.key_id in self.transport.peers:
+                        self.transport.peers.pop(self.key_id)
                     await self.disconnect()
-                else:
-                    continue
-            self.logger.debug(f'pinged {self.key_id.hex()}')
-            await asyncio.sleep(3)
+            await asyncio.sleep(5)
 
     async def get_signed_address_list(self):
         return (await self.transport.send_query_message('dht.getSignedAddressList', {}, self))[0]
