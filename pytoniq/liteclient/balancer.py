@@ -93,7 +93,9 @@ class LiteBalancer:
 
     async def _connect_to_peer(self, client: LiteClient):
         if client.listener is not None and not client.listener.done():
-            await client.close()
+            client.listener.cancel()
+            while not client.listener.done():
+                await asyncio.sleep(0)
         try:
             if client.trust_level >= 1:
                 await asyncio.wait_for(client.connect(), 3)
@@ -115,19 +117,28 @@ class LiteBalancer:
         except Exception as e:
             self._logger.debug(f'Failed to ping peer {peer.server.get_key_id().hex()}: {e}')
 
+    def _check_errors(self, client: LiteClient):
+        if (
+                (client.updater is not None and client.updater.done())
+                or (client.listener is not None and client.listener.done())
+                or (client.pinger is not None and client.pinger.done())
+        ):
+            if client.updater.done():
+                self._logger.debug(f'client updater failed with exc {client.updater.exception()}')
+            if client.listener.done():
+                self._logger.debug(f'client listener failed with exc {client.listener.exception()}')
+            if client.pinger.done():
+                self._logger.debug(f'client pinger failed with exc {client.pinger.exception()}')
+            return True
+        return False
+
     async def _check_peers(self):
         while True:
             await asyncio.sleep(3)
             for i, client in enumerate(self._peers):
                 client: LiteClient
                 if client.inited:
-                    if client.updater.done() or client.listener.done() or client.pinger.done():
-                        if client.updater.done():
-                            self._logger.debug(f'client {i} updater failed with exc {client.updater.exception()}')
-                        if client.listener.done():
-                            self._logger.debug(f'client {i} listener failed with exc {client.listener.exception()}')
-                        if client.pinger.done():
-                            self._logger.debug(f'client {i} pinger failed with exc {client.pinger.exception()}')
+                    if self._check_errors(client):
                         self._alive_peers.discard(i)
                         await client.close()
                         if await self._connect_to_peer(client):
@@ -140,6 +151,7 @@ class LiteBalancer:
                     else:
                         self._alive_peers.discard(i)
                 else:
+                    self._check_errors(client)
                     if await self._connect_to_peer(client):
                         self._alive_peers.add(i)
                     else:
@@ -368,7 +380,7 @@ class LiteBalancer:
             if peer.inited:
                 await peer.close()
         self._checker.cancel()
-        while not self._checker.cancelled():
+        while not self._checker.done():
             await asyncio.sleep(0)
 
     async def close(self):
