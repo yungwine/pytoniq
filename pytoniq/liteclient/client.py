@@ -173,7 +173,7 @@ class LiteClient:
     async def close(self) -> None:
         for i in [self.pinger, self.updater, self.listener]:
             i.cancel()
-            while not i.cancelled():
+            while not i.done():
                 await asyncio.sleep(0.001)
         self.inited = False
         self.tasks = {}
@@ -288,7 +288,10 @@ class LiteClient:
         if self.last_mc_block is None:
             self.last_mc_block = await self.get_trusted_last_mc_block()
         while True:
-            await self.wait_masterchain_seqno(self.last_mc_block.seqno + 1, timeout_ms=10000, schema_name='getMasterchainInfo', data={})
+            try:
+                await self.wait_masterchain_seqno(self.last_mc_block.seqno + 1, timeout_ms=10000, schema_name='getMasterchainInfo', data={})
+            except asyncio.TimeoutError:
+                continue
             await self.update_last_blocks()
 
     async def get_masterchain_info(self):
