@@ -657,58 +657,86 @@ class LiteClient:
         return result
 
     async def raw_get_block_transactions(self, block: BlockIdExt, count: int = 1024) -> typing.List[dict]:
+
+        def parse_transactions(result: dict):
+            if not result['ids']:
+                return []
+
+            transactions_ids = result['ids']
+            if self.trust_level <= 1:
+                proof = Cell.one_from_boc(result['proof'])
+                check_block_header_proof(proof[0], block.root_hash)
+                acc_block = Block.deserialize(proof[0].begin_parse()).extra.account_blocks[0]
+
+            for tr in transactions_ids:
+                tr['hash'] = bytes.fromhex(tr['hash'])
+                tr.pop('mode')  # in this lib mode is a fixed num, so we don't really need it in result, moreover mode can mislead
+                if self.trust_level <= 1:
+                    block_trs: dict = acc_block.get(int(tr['account'], 16)).transactions[0]
+                    block_tr: Cell = block_trs.get(tr['lt'])
+                    assert block_tr.get_hash(0) == tr['hash']
+                tr['account'] = Address((block.workchain, bytes.fromhex(tr['account'])))
+
+            return transactions_ids
+
         mode = 39  # 100111
         data = {'id': block.to_dict(), 'mode': mode, 'count': count, 'want_proof': b''}
         result = await self.liteserver_request('listBlockTransactions', data)
-        if not result['ids']:
-            return []
-        transactions_ids = result['ids']
-        if self.trust_level <= 1:
-            proof = Cell.one_from_boc(result['proof'])
-            check_block_header_proof(proof[0], block.root_hash)
-            acc_block = Block.deserialize(proof[0].begin_parse()).extra.account_blocks[0]
 
         if not self.trust_level and block != self.last_mc_block:
             await self.prove_block(block)
 
-        for tr in transactions_ids:
-            tr['hash'] = bytes.fromhex(tr['hash'])
-            tr.pop('mode')  # in this lib mode is a fixed num, so we don't really need it in result, moreover mode can mislead
-            if self.trust_level <= 1:
-                block_trs: dict = acc_block.get(int(tr['account'], 16)).transactions[0]
-                block_tr: Cell = block_trs.get(tr['lt'])
-                assert block_tr.get_hash(0) == tr['hash']
-            tr['account'] = Address((block.workchain, bytes.fromhex(tr['account'])))
+        transactions = parse_transactions(result)
 
-        return transactions_ids
+        while result['incomplete']:
+            mode = 167  # 10100111
+            data |= {'mode': mode, 'after': {'account': transactions[-1]['account'].hash_part.hex(), 'lt': transactions[-1]['lt']}}
+            result = await self.liteserver_request('listBlockTransactions', data)
+            transactions += parse_transactions(result)
+
+        return transactions
 
     async def raw_get_block_transactions_ext(self, block: BlockIdExt, count: int = 1024) -> typing.List[Transaction]:
+
+        def parse_transactions(result: dict):
+            if not result['transactions']:
+                return []
+
+            transactions_cells = Cell.from_boc(result['transactions'])
+
+            if self.trust_level <= 1:
+                proof = Cell.one_from_boc(result['proof'])
+                check_block_header_proof(proof[0], block.root_hash)
+                acc_block = Block.deserialize(proof[0].begin_parse()).extra.account_blocks[0]
+            tr_result = []
+
+            for tr_root in transactions_cells:
+                transaction = Transaction.deserialize(tr_root.begin_parse())
+                if self.trust_level <= 1:
+                    prunned_tr_cell = acc_block.get(int(transaction.account_addr_hex, 16)).transactions[0].get(
+                        transaction.lt)
+                    assert prunned_tr_cell.get_hash(0) == tr_root.get_hash(0)
+                # transaction.account = Address((block.workchain, bytes.fromhex(transaction.account_addr)))
+                tr_result.append(transaction)
+
+            return tr_result
+
         mode = 39  # 100111
         data = {'id': block.to_dict(), 'mode': mode, 'count': count, 'want_proof': b''}
         result = await self.liteserver_request('listBlockTransactionsExt', data)
 
-        if not result['transactions']:
-            return []
+        if not self.trust_level and block != self.last_mc_block:
+            await self.prove_block(block)
 
-        transactions_cells = Cell.from_boc(result['transactions'])
+        transactions = parse_transactions(result)
 
-        if self.trust_level <= 1:
-            proof = Cell.one_from_boc(result['proof'])
-            check_block_header_proof(proof[0], block.root_hash)
-            acc_block = Block.deserialize(proof[0].begin_parse()).extra.account_blocks[0]
-            if not self.trust_level and block != self.last_mc_block:
-                await self.prove_block(block)
-        tr_result = []
+        while result['incomplete']:
+            mode = 167  # 10100111
+            data |= {'mode': mode, 'after': {'account': transactions[-1].account_addr_hex, 'lt': transactions[-1].lt}}
+            result = await self.liteserver_request('listBlockTransactionsExt', data)
+            transactions += parse_transactions(result)
 
-        for tr_root in transactions_cells:
-            transaction = Transaction.deserialize(tr_root.begin_parse())
-            if self.trust_level <= 1:
-                prunned_tr_cell = acc_block.get(int(transaction.account_addr_hex, 16)).transactions[0].get(transaction.lt)
-                assert prunned_tr_cell.get_hash(0) == tr_root.get_hash(0)
-            # transaction.account = Address((block.workchain, bytes.fromhex(transaction.account_addr)))
-            tr_result.append(transaction)
-
-        return tr_result
+        return transactions
 
     async def raw_get_mc_block_proof(self, known_block: BlockIdExt, target_block: typing.Optional[BlockIdExt] = None,
                                      return_best_key_block=False
