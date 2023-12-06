@@ -99,21 +99,31 @@ class HighloadWallet(Wallet):
 
         return await self.send_external(body=transfer_msg)
 
-    async def transfer(self, destinations: typing.Union[Address, str], amounts: int, bodies: typing.List[Cell],
-                       state_inits: typing.List[StateInit] = None):
+    async def transfer(self, destinations: typing.Union[typing.List[Address], typing.List[str]], 
+                    amounts: typing.List[int], 
+                    bodies: typing.List[Cell],
+                    state_inits: typing.List[StateInit] = None):
+        # Check if all lists are of the same length
+        if not (len(destinations) == len(amounts) == len(bodies)):
+            raise ValueError("All lists (destinations, amounts, bodies) must be of the same length.")
+
+        # Initialize state_inits if None
+        if state_inits is None:
+            state_inits = [None] * len(destinations)
+        elif len(state_inits) != len(destinations):
+            raise ValueError("Length of state_inits must match the length of destinations.")
+
         result_msgs = []
         for i in range(len(destinations)):
             destination = destinations[i]
-            body = bodies[i]
-            if body is None:
-                body = Cell.empty()
+            body = bodies[i] if bodies[i] is not None else Cell.empty()
 
             if isinstance(destination, str):
                 destination = Address(destination)
 
             result_msgs.append(
-                self.create_wallet_internal_message(destination=destination, value=amounts[i], body=body,
-                                                    state_init=state_inits[i]))
+                self.create_wallet_internal_message(destination=destination, value=amounts[i], 
+                                                    body=body, state_init=state_inits[i]))
         return await self.raw_transfer(msgs=result_msgs)
 
     async def send_init_external(self):
