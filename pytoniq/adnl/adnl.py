@@ -19,7 +19,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
     def __init__(self, timeout: int = 10):
         # https://github.com/eerimoq/asyncudp/blob/main/asyncudp/__init__.py
         self._error = None
-        self._packets = asyncio.Queue(10000)
+        self._packets = asyncio.Queue(1000000)
         self.timeout = timeout
         self.logger = logging.getLogger(self.__class__.__name__)
 
