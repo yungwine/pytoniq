@@ -211,7 +211,7 @@ class AdnlTransport:
             if peer is None:
                 raise AdnlTransportError('Must either specify seqno in data or provide peer to method')
             data['seqno'] = peer.seqno
-        if data.get('recv_addr_list_version') is None and data['message'] and data['message']['@type'] == 'adnl.message.custom':
+        if data.get('recv_addr_list_version') is None:
             data['recv_addr_list_version'] = peer.recv_addr_list_version
             # data['recv_addr_list_version'] = int(time.time())
             pass
