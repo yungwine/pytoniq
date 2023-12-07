@@ -60,6 +60,7 @@ class Node(Server):
         self.connected = False
         self.logger = logging.getLogger(self.__class__.__name__)
         self._lost_pings = 0
+        self.recv_addr_list_version = None
 
     async def connect(self):
         return await self.transport.connect_to_peer(self)
@@ -210,6 +211,10 @@ class AdnlTransport:
             if peer is None:
                 raise AdnlTransportError('Must either specify seqno in data or provide peer to method')
             data['seqno'] = peer.seqno
+        if data.get('recv_addr_list_version') is None and data['message'] and data['message']['@type'] == 'adnl.message.custom':
+            data['recv_addr_list_version'] = peer.recv_addr_list_version
+            # data['recv_addr_list_version'] = int(time.time())
+            pass
         if data.get('confirm_seqno') is None:
             if peer is None:
                 raise AdnlTransportError('Must either specify confirm_seqno in data or provide peer to method')
@@ -543,6 +548,7 @@ class AdnlTransport:
 
         peer.start_ping()
         peer.connected = True
+        peer.recv_addr_list_version = ts
         self.peers[peer.key_id] = peer
 
         return messages[1]

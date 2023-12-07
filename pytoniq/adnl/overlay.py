@@ -106,15 +106,17 @@ class OverlayTransport(AdnlTransport):
         if data['@type'] == 'overlay.broadcast':
             # Force broadcast spreading for the network stability. Can be removed in the future.
             # Note that this is almost takes no time to do and will be done in the background.
-            asyncio.create_task(self.spread_broadcast(data, ignore_errors=True))
+            pass
+            # await self.spread_broadcast(data)
+            # await self.spread_broadcast(final, ignore_errors=True)
 
         await self._process_custom_message_handler(data, peer)
 
     async def spread_broadcast(self, message: dict, ignore_errors: bool = True):
         tasks = []
-        peers = random.choices(list(self.peers.items()), k=3)  # https://github.com/ton-blockchain/ton/blob/e30049930a7372a3c1d28a1e59956af8eb489439/overlay/overlay-broadcast.cpp#L69
+        peers = random.choices(list(self.peers.items()), k=5)  # https://github.com/ton-blockchain/ton/blob/e30049930a7372a3c1d28a1e59956af8eb489439/overlay/overlay-broadcast.cpp#L69
         for _, peer in peers:
-            tasks.append(self.send_custom_message(message, peer))
+            await self.send_custom_message(message, peer)
         result = await asyncio.gather(*tasks, return_exceptions=ignore_errors)
         failed = 0
         for r in result:
