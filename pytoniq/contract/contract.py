@@ -87,7 +87,7 @@ class Contract:
         return await cls.from_state_init(provider=provider, workchain=workchain, state_init=state_init, **kwargs)
 
     async def update(self):
-        account, shard_account = await self.raw_get_account_state()
+        account, shard_account = await self.provider.raw_get_account_state(self.address)
         self.set_account_attributes(account, shard_account)
 
     async def raw_get_account_state(self):
