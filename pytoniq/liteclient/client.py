@@ -155,6 +155,8 @@ class LiteClient:
                 request.set_result(result)
 
     async def connect(self) -> None:
+        if self.inited:
+            raise LiteClientError('The client is already connected')
         self.loop = asyncio.get_running_loop()
         handshake = self.handshake()
         self.reader, self.writer = await asyncio.wait_for(asyncio.open_connection(self.server.host, self.server.port), self.timeout)

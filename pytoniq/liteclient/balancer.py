@@ -65,6 +65,7 @@ class LiteBalancer:
                 self._alive_peers.add(i)
         await self._find_archives()
         self._checker = asyncio.create_task(self._check_peers())
+        self._delete_unsync_peers()
 
     async def _find_archives(self):
         tasks = []
@@ -92,7 +93,9 @@ class LiteBalancer:
             return False
 
     async def _connect_to_peer(self, client: LiteClient):
+        self._check_errors(client)
         if client.listener is not None and not client.listener.done():
+
             client.listener.cancel()
             while not client.listener.done():
                 await asyncio.sleep(0)
@@ -107,6 +110,8 @@ class LiteBalancer:
         except Exception as e:
             self._logger.debug(f'Failed to connect to the peer {client.server.get_key_id().hex()}: {e}')
             return False
+        finally:
+            self._check_errors(client)
 
     async def _ping_peer(self, peer: LiteClient):
         try:
@@ -120,15 +125,15 @@ class LiteBalancer:
     def _check_errors(self, client: LiteClient):
         if (
                 (client.updater is not None and client.updater.done())
-                or (client.listener is not None and client.listener.done())
                 or (client.pinger is not None and client.pinger.done())
+                or (client.listener is not None and client.listener.done())
         ):
-            if client.updater.done():
+            if client.updater is not None and client.updater.done():
                 self._logger.debug(f'client updater failed with exc {client.updater.exception()}')
-            if client.listener.done():
-                self._logger.debug(f'client listener failed with exc {client.listener.exception()}')
-            if client.pinger.done():
+            if client.pinger is not None and client.pinger.done():
                 self._logger.debug(f'client pinger failed with exc {client.pinger.exception()}')
+            if client.listener is not None and client.listener.done():
+                self._logger.debug(f'client listener failed with exc {client.listener.exception()}')
             return True
         return False
 
@@ -136,6 +141,7 @@ class LiteBalancer:
         while True:
             await asyncio.sleep(3)
             for i, client in enumerate(self._peers):
+                self._delete_unsync_peers()
                 client: LiteClient
                 if client.inited:
                     if self._check_errors(client):
@@ -151,7 +157,6 @@ class LiteBalancer:
                     else:
                         self._alive_peers.discard(i)
                 else:
-                    self._check_errors(client)
                     if await self._connect_to_peer(client):
                         self._alive_peers.add(i)
                     else:
@@ -204,6 +209,17 @@ class LiteBalancer:
         for i in range(len(self._peers)):
             self._update_mc_seqno(i)
 
+    def _find_consensus_block(self):
+        self._update_mc_seqnos()
+        seqnos = sorted(self._mc_blocks.values(), reverse=True)
+        return seqnos[len(seqnos) * 2 // 3]  # block that knows at least 2/3 liteservers
+
+    def _delete_unsync_peers(self):
+        cons_block = self._find_consensus_block()
+        for i in list(self._alive_peers):
+            if self._mc_blocks.get(i, 0) < cons_block:
+                self._alive_peers.discard(i)
+
     async def execute_method(self, method_name_: str, *args, **kwargs) -> typing.Union[dict, typing.Any]:
         for _ in range(self.max_retries):
 
@@ -211,13 +227,21 @@ class LiteBalancer:
                 raise BalancerError(f'have no alive peers')
 
             only_archive = kwargs.pop('only_archive', False)
+            choose_random = kwargs.pop('choose_random', False)
+
+            if only_archive and choose_random:
+                raise BalancerError('Currently you cant execute method for both random and archive peer')
+
             if only_archive and not len(self._archival_peers):
                 await self._find_archives()  # give one more chance to find
                 if not len(self._archival_peers):
                     raise BalancerError(f'have no alive archive peers')
 
             self._update_mc_seqnos()
-            ind = self._choose_peer(only_archive)
+            if choose_random:
+                ind = random.choice(list(self._alive_peers))
+            else:
+                ind = self._choose_peer(only_archive)
             peer: LiteClient = self._peers[ind]
 
             peer_meth = getattr(peer, method_name_, None)
@@ -231,6 +255,7 @@ class LiteBalancer:
                 self._update_average_request_time(ind, (time.time_ns() - s) // 10**6)  # provide milliseconds
                 return resp
             except asyncio.TimeoutError:
+                self._update_average_request_time(ind, self.timeout * 10**6)  # provide milliseconds
                 self._alive_peers.discard(ind)
                 continue
             finally:
@@ -239,6 +264,9 @@ class LiteBalancer:
     @staticmethod
     def _get_args(locals_: dict):
         a = locals_.copy()
+        for k in list(a.keys()):
+            if k.startswith('_'):
+                a.pop(k)
         a.pop('self')
         kwargs = a.pop('kwargs', {})
         a |= kwargs
@@ -247,97 +275,97 @@ class LiteBalancer:
     """CODE BELOW IS AUTOGENERATED. DO NOT EDIT MANUALLY"""
 
     async def get_masterchain_info(self, **kwargs):
-        return await self.execute_method('get_masterchain_info', **self._get_args(locals())) 
+        return await self.execute_method('get_masterchain_info', **self._get_args(locals()))
 
     async def raw_wait_masterchain_seqno(self, seqno: int, timeout_ms: int, suffix: bytes = b'', **kwargs):
-        return await self.execute_method('raw_wait_masterchain_seqno', **self._get_args(locals())) 
+        return await self.execute_method('raw_wait_masterchain_seqno', **self._get_args(locals()))
 
     async def wait_masterchain_seqno(self, seqno: int, timeout_ms: int, schema_name: str, data: dict = None, **kwargs):
-        return await self.execute_method('wait_masterchain_seqno', **self._get_args(locals())) 
+        return await self.execute_method('wait_masterchain_seqno', **self._get_args(locals()))
 
     async def get_masterchain_info_ext(self, **kwargs):
-        return await self.execute_method('get_masterchain_info_ext', **self._get_args(locals())) 
+        return await self.execute_method('get_masterchain_info_ext', **self._get_args(locals()))
 
     async def get_time(self, **kwargs):
-        return await self.execute_method('get_time', **self._get_args(locals())) 
+        return await self.execute_method('get_time', **self._get_args(locals()))
 
     async def get_version(self, **kwargs):
-        return await self.execute_method('get_version', **self._get_args(locals())) 
+        return await self.execute_method('get_version', **self._get_args(locals()))
 
     async def get_state(self, wc: int, shard: typing.Optional[int],
                         seqno: int, root_hash: typing.Union[str, bytes],
                         file_hash: typing.Union[str, bytes]
                         , **kwargs) -> dict:
-        return await self.execute_method('get_state', **self._get_args(locals())) 
+        return await self.execute_method('get_state', **self._get_args(locals()))
 
     async def raw_get_block_header(self, block: BlockIdExt, **kwargs) -> Block:
-        return await self.execute_method('raw_get_block_header', **self._get_args(locals())) 
+        return await self.execute_method('raw_get_block_header', **self._get_args(locals()))
 
     async def get_block_header(self, wc: int, shard: typing.Optional[int], seqno: int,
                                root_hash: typing.Union[str, bytes],
                                file_hash: typing.Union[str, bytes]
                                , **kwargs) -> Block:
-        return await self.execute_method('get_block_header', **self._get_args(locals())) 
+        return await self.execute_method('get_block_header', **self._get_args(locals()))
 
     async def lookup_block(self, wc: int, shard: int, seqno: int = -1,
                            lt: typing.Optional[int] = None,
                            utime: typing.Optional[int] = None, **kwargs) -> typing.Tuple[BlockIdExt, Block]:
-        return await self.execute_method('lookup_block', **self._get_args(locals())) 
+        return await self.execute_method('lookup_block', **self._get_args(locals()))
 
     async def raw_get_block(self, block: BlockIdExt, **kwargs) -> Block:
-        return await self.execute_method('raw_get_block', **self._get_args(locals())) 
+        return await self.execute_method('raw_get_block', **self._get_args(locals()))
 
     async def get_block(self, wc: int, shard: typing.Optional[int],
                         seqno: int, root_hash: typing.Union[str, bytes],
                         file_hash: typing.Union[str, bytes], **kwargs) -> Block:
-        return await self.execute_method('get_block', **self._get_args(locals())) 
+        return await self.execute_method('get_block', **self._get_args(locals()))
 
     async def raw_get_account_state(self, address: typing.Union[str, Address],
                                     block: typing.Optional[BlockIdExt] = None
                                     , **kwargs) -> typing.Tuple[typing.Optional[Account], typing.Optional[ShardAccount]]:
-        return await self.execute_method('raw_get_account_state', **self._get_args(locals())) 
+        return await self.execute_method('raw_get_account_state', **self._get_args(locals()))
 
     async def get_account_state(self, address: typing.Union[str, Address], **kwargs) -> SimpleAccount:
-        return await self.execute_method('get_account_state', **self._get_args(locals())) 
+        return await self.execute_method('get_account_state', **self._get_args(locals()))
 
     async def run_get_method(self, address: typing.Union[Address, str],
                              method: typing.Union[int, str], stack: list,
                              block: BlockIdExt = None
                              , **kwargs) -> list:
-        return await self.execute_method('run_get_method', **self._get_args(locals())) 
+        return await self.execute_method('run_get_method', **self._get_args(locals()))
 
     async def raw_get_shard_info(self, block: typing.Optional[BlockIdExt] = None,
                                  wc: int = 0, shard: int = -9223372036854775808,
                                  exact: bool = True
                                  , **kwargs) -> ShardDescr:
-        return await self.execute_method('raw_get_shard_info', **self._get_args(locals())) 
+        return await self.execute_method('raw_get_shard_info', **self._get_args(locals()))
 
     async def raw_get_all_shards_info(self, block: typing.Optional[BlockIdExt] = None, **kwargs) -> typing.Dict[int, BinTree]:
-        return await self.execute_method('raw_get_all_shards_info', **self._get_args(locals())) 
+        return await self.execute_method('raw_get_all_shards_info', **self._get_args(locals()))
 
     async def get_all_shards_info(self, block: typing.Optional[BlockIdExt] = None, **kwargs) -> typing.List[BlockIdExt]:
-        return await self.execute_method('get_all_shards_info', **self._get_args(locals())) 
+        return await self.execute_method('get_all_shards_info', **self._get_args(locals()))
 
     async def get_one_transaction(self, address: typing.Union[Address, str],
                                   lt: int, block: BlockIdExt
                                   , **kwargs) -> typing.Optional[Transaction]:
-        return await self.execute_method('get_one_transaction', **self._get_args(locals())) 
+        return await self.execute_method('get_one_transaction', **self._get_args(locals()))
 
     async def raw_get_transactions(self, address: typing.Union[Address, str], count: int,
                                    from_lt: int = None, from_hash: typing.Optional[bytes] = None
                                    , **kwargs) -> typing.Tuple[typing.List[Transaction], typing.List[BlockIdExt]]:
-        return await self.execute_method('raw_get_transactions', **self._get_args(locals())) 
+        return await self.execute_method('raw_get_transactions', **self._get_args(locals()))
 
     async def get_transactions(self, address: typing.Union[Address, str], count: int,
                                from_lt: int = None, from_hash: typing.Optional[bytes] = None
                                , **kwargs) -> typing.List[Transaction]:
-        return await self.execute_method('get_transactions', **self._get_args(locals())) 
+        return await self.execute_method('get_transactions', **self._get_args(locals()))
 
     async def raw_get_block_transactions(self, block: BlockIdExt, count: int = 1024, **kwargs) -> typing.List[dict]:
-        return await self.execute_method('raw_get_block_transactions', **self._get_args(locals())) 
+        return await self.execute_method('raw_get_block_transactions', **self._get_args(locals()))
 
     async def raw_get_block_transactions_ext(self, block: BlockIdExt, count: int = 1024, **kwargs) -> typing.List[Transaction]:
-        return await self.execute_method('raw_get_block_transactions_ext', **self._get_args(locals())) 
+        return await self.execute_method('raw_get_block_transactions_ext', **self._get_args(locals()))
 
     async def raw_get_mc_block_proof(self, known_block: BlockIdExt, target_block: typing.Optional[BlockIdExt] = None,
                                      return_best_key_block=False
@@ -347,36 +375,53 @@ class LiteBalancer:
                                                         typing.Optional[BlockIdExt],
                                                         typing.Optional[int]
                                         ]:
-        return await self.execute_method('raw_get_mc_block_proof', **self._get_args(locals())) 
+        return await self.execute_method('raw_get_mc_block_proof', **self._get_args(locals()))
 
     async def get_mc_block_proof(self, known_block: BlockIdExt,
                                  target_block: BlockIdExt,
                                  return_best_key_block=False
                                  , **kwargs) -> typing.Tuple[typing.Optional[BlockIdExt], int]:
-        return await self.execute_method('get_mc_block_proof', **self._get_args(locals())) 
+        return await self.execute_method('get_mc_block_proof', **self._get_args(locals()))
 
     async def prove_block(self, target_block: BlockIdExt, **kwargs) -> None:
-        return await self.execute_method('prove_block', **self._get_args(locals())) 
+        return await self.execute_method('prove_block', **self._get_args(locals()))
 
     async def get_config_all(self, blk: typing.Optional[BlockIdExt] = None, **kwargs) -> dict:
-        return await self.execute_method('get_config_all', **self._get_args(locals())) 
+        return await self.execute_method('get_config_all', **self._get_args(locals()))
 
     async def get_config_params(self, params: typing.List[int], blk: typing.Optional[BlockIdExt] = None, **kwargs) -> dict:
-        return await self.execute_method('get_config_params', **self._get_args(locals())) 
+        return await self.execute_method('get_config_params', **self._get_args(locals()))
 
     async def get_libraries(self, library_list: typing.List[bytes], **kwargs):
-        return await self.execute_method('get_libraries', **self._get_args(locals())) 
+        return await self.execute_method('get_libraries', **self._get_args(locals()))
 
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False, **kwargs):
-        return await self.execute_method('get_shard_block_proof', **self._get_args(locals())) 
-
-    async def raw_send_message(self, message: bytes, **kwargs):
-        return await self.execute_method('raw_send_message', **self._get_args(locals())) 
+        return await self.execute_method('get_shard_block_proof', **self._get_args(locals()))
 
     """CODE ABOVE IS AUTOGENERATED. DO NOT EDIT MANUALLY"""
 
+    async def raw_send_message(self, message: bytes, **kwargs):
+        _tasks = []
+        _choose_random = kwargs.pop('choose_random', True)
+        _k = 4 if len(self._alive_peers) < 12 else len(self._alive_peers) // 3
+        for _ in range(_k):  # distribute external to approximately 1/3 alive peers, but not less than 4
+            _tasks.append(self.execute_method('raw_send_message', choose_random=_choose_random, **self._get_args(locals())))
+        result = await asyncio.gather(*_tasks, return_exceptions=True)
+        success = False
+        exc = None
+        for r in result:
+            if isinstance(r, Exception):
+                exc = r
+            elif r == 1:
+                success = True
+                break
+        if success:
+            return 1
+        raise exc  # raise last exception
+
     async def close_all(self):
         for peer in self._peers:
+            self._check_errors(peer)
             if peer.inited:
                 await peer.close()
         self._checker.cancel()
