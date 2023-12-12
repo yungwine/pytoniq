@@ -33,7 +33,7 @@ async def test_account_state(client: LiteBalancer):
     data: Cell = state.storage.state.state_init.data
     cs = data.begin_parse()
     cs.skip_bits(32)  # seqno
-    assert cs.load_bytes(32) == b'\x00' * 32
+    assert cs.load_bytes(32) == b'\x82\xb1|\xaa\xdb0=S\xc3(l\x06\xa6\xe1\xaf\xfcQ}\x1b\xc1\xd3\xef.D\x89\xd1\x8b\x87?]|\xd1'
     await client.close_all()
 
 
