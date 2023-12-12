@@ -249,7 +249,6 @@ class LiteBalancer:
             s = time.time_ns()
             if not peer_meth:
                 raise BalancerError('Unknown method for peer')
-
             try:
                 resp = await peer_meth(*args, **kwargs)
                 self._update_average_request_time(ind, (time.time_ns() - s) // 10**6)  # provide milliseconds
@@ -260,6 +259,7 @@ class LiteBalancer:
                 continue
             finally:
                 self._current_req_num[ind] -= 1
+        raise asyncio.TimeoutError()
 
     @staticmethod
     def _get_args(locals_: dict):
