@@ -660,8 +660,7 @@ class LiteClient:
             if to_lt > 0 and tr_result[-1].lt <= to_lt:
                 for j, t in enumerate(tr_result):
                     if t.lt <= to_lt:
-                        if j != 0:
-                            result += tr_result[:j-1]
+                        result += tr_result[:j]
                         reach_lt = True
                         break
                 if reach_lt:
