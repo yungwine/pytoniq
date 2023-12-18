@@ -41,7 +41,7 @@ class Wallet(Contract):
         if isinstance(body, str):
             body = Builder()\
                 .store_uint(0, 32)\
-                .store_string(body)\
+                .store_snake_string(body)\
                 .end_cell()
 
         message = Contract.create_internal_msg(dest=destination, value=value, body=body, state_init=state_init, **kwargs)
