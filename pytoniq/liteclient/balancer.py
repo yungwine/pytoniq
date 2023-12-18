@@ -127,7 +127,7 @@ class LiteBalancer:
                 if not task.cancelled():
                     self._logger.debug(f'client task {task} failed with exception: {task.exception()}')
                 return True
-            return False
+        return False
 
     async def _check_peers(self):
         while True:
