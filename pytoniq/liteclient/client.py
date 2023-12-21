@@ -33,12 +33,19 @@ class LiteClientError(Exception):
     pass
 
 
+class LiteServerError(LiteClientError):
+    def __init__(self, code, message):
+        self.code = code
+        self.message = message
+        super().__init__(f'Liteserver crashed with {code} code. Message: {message}')
+
+
 class RunGetMethodError(LiteClientError):
     def __init__(self, address: typing.Any, method: typing.Any, exit_code: int):
         self.address = address
         self.method = method
         self.exit_code = exit_code
-        super().__init__(f'get method "{method}" for account {address} returned exit code {exit_code}')
+        super().__init__(f'Get method "{method}" for account {address} returned exit code {exit_code}')
 
 
 class LiteClient:
@@ -246,7 +253,7 @@ class LiteClient:
         result = resp.result()
 
         if 'code' in result and 'message' in result:
-            raise LiteClientError(f'LiteClient crashed with {result["code"]} code. Message: {result["message"]}')
+            raise LiteServerError(result["code"], result["message"])
 
         return resp.result()
 
