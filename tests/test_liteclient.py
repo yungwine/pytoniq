@@ -12,7 +12,7 @@ from pytoniq import LiteClient
 @pytest_asyncio.fixture
 async def client():
     while True:
-        client = LiteClient.from_mainnet_config(random.randint(0, 15), trust_level=2)
+        client = LiteClient.from_mainnet_config(random.randint(0, 15), trust_level=1)
         try:
             await client.connect()
             yield client
@@ -47,6 +47,8 @@ async def test_methods(client: LiteClient):
     await client.get_masterchain_info()
     await client.get_config_all()
     await client.raw_get_block(client.last_mc_block)
+    lib = 'c245262b8c2bce5e9fcd23ca334e1d55fa96d4ce69aa2817ded717cefcba3f73'
+    await client.get_libraries([lib, lib])
 
 
 @pytest.mark.asyncio

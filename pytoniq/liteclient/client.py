@@ -912,12 +912,22 @@ class LiteClient:
         state_proof = Cell.one_from_boc(result['state_proof'])
         return self.unpack_config(blk, config_proof, state_proof)
 
-    async def get_libraries(self, library_list: typing.List[bytes]):
+    async def get_libraries(self, library_list: typing.List[typing.Optional[bytes, str]]):
+        if len(library_list) > 16:
+            raise LiteClientError('maximum libraries num could be requested is 16')
+        library_list = [lib.hex() if isinstance(lib, bytes) else lib for lib in library_list]
         data = {'library_list': library_list}
 
         result = await self.liteserver_request('getLibraries', data)
 
-        return result['result']
+        libs = result['result']
+
+        if self.trust_level < 2:
+            for i, lib in enumerate(libs):
+                if Cell.one_from_boc(lib['data']).hash.hex() != library_list[i]:
+                    raise LiteClientError('library hash mismatch')
+
+        return libs
 
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False):
         data = {'id': blk.to_dict()}
