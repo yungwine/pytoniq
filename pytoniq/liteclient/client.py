@@ -912,7 +912,7 @@ class LiteClient:
         state_proof = Cell.one_from_boc(result['state_proof'])
         return self.unpack_config(blk, config_proof, state_proof)
 
-    async def get_libraries(self, library_list: typing.List[typing.Optional[bytes, str]]):
+    async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]]):
         if len(library_list) > 16:
             raise LiteClientError('maximum libraries num could be requested is 16')
         library_list = [lib.hex() if isinstance(lib, bytes) else lib for lib in library_list]
