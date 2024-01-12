@@ -349,7 +349,8 @@ class LiteBalancer:
         return await self.execute_method('raw_get_transactions', **self._get_args(locals())) 
 
     async def get_transactions(self, address: typing.Union[Address, str], count: int,
-                               from_lt: int = None, from_hash: typing.Optional[bytes] = None
+                               from_lt: int = None, from_hash: typing.Optional[bytes] = None,
+                               to_lt: int = 0
                                , **kwargs) -> typing.List[Transaction]:
         return await self.execute_method('get_transactions', **self._get_args(locals())) 
 

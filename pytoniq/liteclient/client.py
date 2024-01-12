@@ -646,7 +646,8 @@ class LiteClient:
         return tr_result, block_ids
 
     async def get_transactions(self, address: typing.Union[Address, str], count: int,
-                               from_lt: int = None, from_hash: typing.Optional[bytes] = None
+                               from_lt: int = None, from_hash: typing.Optional[bytes] = None,
+                               to_lt: int = 0
                                ) -> typing.List[Transaction]:
         """
         Returns account transactions
@@ -654,13 +655,23 @@ class LiteClient:
         :param count:
         :param from_lt:
         :param from_hash:
+        :param to_lt:
         :return:
         """
         result: typing.List[Transaction] = []
+        reach_lt = False
 
         for i in range(0, count, 16):
             amount = min(16, count - i)
-            tr_result, block_ids = await self.raw_get_transactions(address, amount, from_lt, from_hash)
+            tr_result, _ = await self.raw_get_transactions(address, amount, from_lt, from_hash)
+            if to_lt > 0 and tr_result[-1].lt <= to_lt:
+                for j, t in enumerate(tr_result):
+                    if t.lt <= to_lt:
+                        result += tr_result[:j]
+                        reach_lt = True
+                        break
+                if reach_lt:
+                    break
             result += tr_result
             from_lt, from_hash = result[-1].prev_trans_lt, result[-1].prev_trans_hash
             if from_lt == 0:
