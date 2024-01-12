@@ -33,12 +33,19 @@ class LiteClientError(Exception):
     pass
 
 
+class LiteServerError(LiteClientError):
+    def __init__(self, code, message):
+        self.code = code
+        self.message = message
+        super().__init__(f'Liteserver crashed with {code} code. Message: {message}')
+
+
 class RunGetMethodError(LiteClientError):
     def __init__(self, address: typing.Any, method: typing.Any, exit_code: int):
         self.address = address
         self.method = method
         self.exit_code = exit_code
-        super().__init__(f'get method "{method}" for account {address} returned exit code {exit_code}')
+        super().__init__(f'Get method "{method}" for account {address} returned exit code {exit_code}')
 
 
 class LiteClient:
@@ -246,7 +253,7 @@ class LiteClient:
         result = resp.result()
 
         if 'code' in result and 'message' in result:
-            raise LiteClientError(f'LiteClient crashed with {result["code"]} code. Message: {result["message"]}')
+            raise LiteServerError(result["code"], result["message"])
 
         return resp.result()
 
@@ -916,12 +923,22 @@ class LiteClient:
         state_proof = Cell.one_from_boc(result['state_proof'])
         return self.unpack_config(blk, config_proof, state_proof)
 
-    async def get_libraries(self, library_list: typing.List[bytes]):
+    async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]]):
+        if len(library_list) > 16:
+            raise LiteClientError('maximum libraries num could be requested is 16')
+        library_list = [lib.hex() if isinstance(lib, bytes) else lib for lib in library_list]
         data = {'library_list': library_list}
 
         result = await self.liteserver_request('getLibraries', data)
 
-        return result['result']
+        libs = result['result']
+
+        if self.trust_level < 2:
+            for i, lib in enumerate(libs):
+                if Cell.one_from_boc(lib['data']).hash.hex() != library_list[i]:
+                    raise LiteClientError('library hash mismatch')
+
+        return libs
 
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False):
         data = {'id': blk.to_dict()}
