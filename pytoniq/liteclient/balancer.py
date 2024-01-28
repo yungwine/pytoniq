@@ -213,13 +213,13 @@ class LiteBalancer:
                 self._alive_peers.discard(i)
 
     async def execute_method(self, method_name_: str, *args, **kwargs) -> typing.Union[dict, typing.Any]:
+        only_archive = kwargs.pop('only_archive', False)
+        choose_random = kwargs.pop('choose_random', False)
+
         for _ in range(self.max_retries):
 
             if not len(self._alive_peers):
                 raise BalancerError(f'have no alive peers')
-
-            only_archive = kwargs.pop('only_archive', False)
-            choose_random = kwargs.pop('choose_random', False)
 
             if only_archive and choose_random:
                 raise BalancerError('Currently you cant execute method for both random and archive peer')
