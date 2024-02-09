@@ -956,10 +956,12 @@ class LiteClient:
             shard = None
             for sh in shards:
                 sh: ShardDescr
-                if sh.seq_no == blk.seqno and sh.next_validator_shard_signed == blk.shard:
+                if sh is not None and sh.seq_no == blk.seqno and sh.next_validator_shard_signed == blk.shard:
                     shard = sh.__dict__
-
+            if shard is None:
+                raise LiteClientError('shard not found in masterchain')
             shardblk = BlockIdExt.from_dict(shard)
+            shardblk.shard = shard['next_validator_shard_signed']
             shardblk.seqno = shard['seq_no']
             shardblk.workchain = blk.workchain
             return shardblk
