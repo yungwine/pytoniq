@@ -33,12 +33,19 @@ class LiteClientError(Exception):
     pass
 
 
+class LiteServerError(LiteClientError):
+    def __init__(self, code, message):
+        self.code = code
+        self.message = message
+        super().__init__(f'Liteserver crashed with {code} code. Message: {message}')
+
+
 class RunGetMethodError(LiteClientError):
     def __init__(self, address: typing.Any, method: typing.Any, exit_code: int):
         self.address = address
         self.method = method
         self.exit_code = exit_code
-        super().__init__(f'get method "{method}" for account {address} returned exit code {exit_code}')
+        super().__init__(f'Get method "{method}" for account {address} returned exit code {exit_code}')
 
 
 class LiteClient:
@@ -246,7 +253,7 @@ class LiteClient:
         result = resp.result()
 
         if 'code' in result and 'message' in result:
-            raise LiteClientError(f'LiteClient crashed with {result["code"]} code. Message: {result["message"]}')
+            raise LiteServerError(result["code"], result["message"])
 
         return resp.result()
 
@@ -639,7 +646,8 @@ class LiteClient:
         return tr_result, block_ids
 
     async def get_transactions(self, address: typing.Union[Address, str], count: int,
-                               from_lt: int = None, from_hash: typing.Optional[bytes] = None
+                               from_lt: int = None, from_hash: typing.Optional[bytes] = None,
+                               to_lt: int = 0
                                ) -> typing.List[Transaction]:
         """
         Returns account transactions
@@ -647,13 +655,23 @@ class LiteClient:
         :param count:
         :param from_lt:
         :param from_hash:
+        :param to_lt:
         :return:
         """
         result: typing.List[Transaction] = []
+        reach_lt = False
 
         for i in range(0, count, 16):
             amount = min(16, count - i)
-            tr_result, block_ids = await self.raw_get_transactions(address, amount, from_lt, from_hash)
+            tr_result, _ = await self.raw_get_transactions(address, amount, from_lt, from_hash)
+            if to_lt > 0 and tr_result[-1].lt <= to_lt:
+                for j, t in enumerate(tr_result):
+                    if t.lt <= to_lt:
+                        result += tr_result[:j]
+                        reach_lt = True
+                        break
+                if reach_lt:
+                    break
             result += tr_result
             from_lt, from_hash = result[-1].prev_trans_lt, result[-1].prev_trans_hash
             if from_lt == 0:
@@ -905,12 +923,22 @@ class LiteClient:
         state_proof = Cell.one_from_boc(result['state_proof'])
         return self.unpack_config(blk, config_proof, state_proof)
 
-    async def get_libraries(self, library_list: typing.List[bytes]):
+    async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]]):
+        if len(library_list) > 16:
+            raise LiteClientError('maximum libraries num could be requested is 16')
+        library_list = [lib.hex() if isinstance(lib, bytes) else lib for lib in library_list]
         data = {'library_list': library_list}
 
         result = await self.liteserver_request('getLibraries', data)
 
-        return result['result']
+        libs = result['result']
+
+        if self.trust_level < 2:
+            for i, lib in enumerate(libs):
+                if Cell.one_from_boc(lib['data']).hash.hex() != library_list[i]:
+                    raise LiteClientError('library hash mismatch')
+
+        return libs
 
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False):
         data = {'id': blk.to_dict()}
@@ -928,10 +956,12 @@ class LiteClient:
             shard = None
             for sh in shards:
                 sh: ShardDescr
-                if sh.seq_no == blk.seqno and sh.next_validator_shard_signed == blk.shard:
+                if sh is not None and sh.seq_no == blk.seqno and sh.next_validator_shard_signed == blk.shard:
                     shard = sh.__dict__
-
+            if shard is None:
+                raise LiteClientError('shard not found in masterchain')
             shardblk = BlockIdExt.from_dict(shard)
+            shardblk.shard = shard['next_validator_shard_signed']
             shardblk.seqno = shard['seq_no']
             shardblk.workchain = blk.workchain
             return shardblk
