@@ -404,9 +404,9 @@ class AdnlTransport:
                     peer = self.peers.get(bytes.fromhex(response['from_short']['id']))
 
             if peer is not None:
-                received_confirm_seqno = response.get('confirm_seqno', 0)
-                if received_confirm_seqno > peer.confirm_seqno:
-                    peer.confirm_seqno = received_confirm_seqno
+                received_seqno = response.get('seqno', 0)
+                if received_seqno > peer.confirm_seqno:
+                    peer.confirm_seqno = received_seqno
 
             message = response.get('message')
             messages = response.get('messages')
