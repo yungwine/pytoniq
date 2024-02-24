@@ -283,11 +283,13 @@ class AdnlTransport:
             self.logger.debug(f'Received message {message} from peer {peer.get_key_id().hex()}')
         if message['@type'] == 'adnl.message.answer':
             future = self.tasks.pop(message.get('query_id'))
-            future.set_result(message['answer'])
+            if not future.done():
+                future.set_result(message['answer'])
         elif message['@type'] == 'adnl.message.confirmChannel':
             if message.get('peer_key') in self.tasks:
                 future = self.tasks.pop(message.get('peer_key'))
-                future.set_result(message)
+                if not future.done():
+                    future.set_result(message)
         elif message['@type'] == 'adnl.message.query':
             if peer is None:
                 self.logger.info(f'Received query message from unknown peer: {message}')
