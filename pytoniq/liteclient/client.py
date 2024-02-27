@@ -925,7 +925,11 @@ class LiteClient:
         state_proof = Cell.one_from_boc(result['state_proof'])
         return self.unpack_config(blk, config_proof, state_proof)
 
-    async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]]):
+    async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]]) -> typing.Dict[str, typing.Optional[Cell]]:
+        """
+        :param library_list: list of library hashes in bytes or string hex form
+        :return: dict {library_hash_hex: library Cell or None if library not found}
+        """
         if len(library_list) > 16:
             raise LiteClientError('maximum libraries num could be requested is 16')
         library_list = [lib.hex() if isinstance(lib, bytes) else lib for lib in library_list]
@@ -935,12 +939,16 @@ class LiteClient:
 
         libs = result['result']
 
-        if self.trust_level < 2:
-            for i, lib in enumerate(libs):
-                if Cell.one_from_boc(lib['data']).hash.hex() != library_list[i]:
+        result = {lib['hash']: Cell.one_from_boc(lib['data']) for lib in libs}
+        for lib in library_list:
+            if lib not in result:
+                result[lib] = None
+                continue
+            if self.trust_level < 2:
+                if result[lib].hash.hex() != lib:
                     raise LiteClientError('library hash mismatch')
 
-        return libs
+        return result
 
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False):
         data = {'id': blk.to_dict()}

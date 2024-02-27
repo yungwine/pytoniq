@@ -5,7 +5,7 @@ import time
 import typing
 
 import requests
-from pytoniq_core import BlockIdExt, Block, Address, Account, ShardAccount, SimpleAccount, ShardDescr, Transaction
+from pytoniq_core import BlockIdExt, Block, Address, Account, ShardAccount, SimpleAccount, ShardDescr, Transaction, Cell
 from pytoniq_core.tlb.block import BinTree
 
 from .client import LiteClient, LiteClientError
@@ -385,7 +385,7 @@ class LiteBalancer:
     async def get_config_params(self, params: typing.List[int], blk: typing.Optional[BlockIdExt] = None, **kwargs) -> dict:
         return await self.execute_method('get_config_params', **self._get_args(locals())) 
 
-    async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]], **kwargs):
+    async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]], **kwargs) -> typing.Dict[str, typing.Optional[Cell]]:
         return await self.execute_method('get_libraries', **self._get_args(locals())) 
 
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False, **kwargs):
