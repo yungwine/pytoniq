@@ -10,7 +10,7 @@ import requests
 
 from .sync import choose_key_block, sync
 from .utils import init_mainnet_block, init_testnet_block
-from pytoniq_core.boc import Slice, Cell
+from pytoniq_core.boc import Slice, Cell, begin_cell
 from pytoniq_core.proof.check_proof import check_block_header_proof, check_shard_proof, check_account_proof, check_proof, \
     check_block_signatures, compute_validator_set
 from pytoniq_core.boc.address import Address
@@ -447,8 +447,10 @@ class LiteClient:
             if not trusted and not self.trust_level:
                 await self.get_mc_block_proof(known_block=self.last_key_block, target_block=block)
         shard_account = check_account_proof(proof=result['proof'], shrd_blk=shrd_blk, address=address, account_state_root=account_state_root, return_account_descr=True)
+        account = Account.deserialize(account_state_root.begin_parse())
+        full_shard_account_cell = begin_cell().store_bytes(shard_account.cell.begin_parse().load_bytes(40)).store_ref(account_state_root).end_cell()
 
-        return Account.deserialize(account_state_root.begin_parse()), shard_account
+        return account, ShardAccount.deserialize(full_shard_account_cell.begin_parse())
 
     async def get_account_state(self, address: typing.Union[str, Address]) -> SimpleAccount:
         """
