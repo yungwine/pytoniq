@@ -4,7 +4,6 @@ import asyncio
 from pytoniq_core.crypto.ciphers import Server
 
 from .overlay import OverlayTransport, OverlayNode
-from ..dht import DhtClient
 
 
 def process_get_random_peers_request(_, overlay_client: OverlayTransport):
@@ -29,9 +28,10 @@ def process_get_capabilities_request(_):
 
 class OverlayManager:
 
-    def __init__(self, overlay: OverlayTransport, dht_client: DhtClient, max_peers: int = 30):
+    def __init__(self, overlay: OverlayTransport, dht_client, max_peers: int = 30):
+        from ..dht import DhtClient
         self.overlay = overlay
-        self.dht = dht_client
+        self.dht: DhtClient = dht_client
         self.max_peers = max_peers
         self.logger = logging.getLogger(self.__class__.__name__)
         self.init_handlers()
