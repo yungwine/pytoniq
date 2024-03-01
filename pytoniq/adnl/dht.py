@@ -12,7 +12,7 @@ from pytoniq_core.crypto.signature import verify_sign
 from pytoniq_core.tl import TlGenerator
 
 from .adnl import Node, AdnlTransport
-from .overlay import OverlayNode, OverlayTransport
+from .overlay.overlay import OverlayNode, OverlayTransport
 
 
 class DhtError(Exception):
