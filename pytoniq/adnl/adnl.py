@@ -130,6 +130,7 @@ class AdnlTransport:
         self.query_handlers: typing.Dict[str, typing.Callable] = {}
         self.custom_handlers: typing.Dict[str, typing.Callable] = {}
         self._message_parts: typing.Dict[str, dict] = {}  # {'hash': {'remained': int, 'parts': list}}
+        self.inited = False
 
         """########### connection ###########"""
         self.transport: asyncio.DatagramTransport = None
@@ -489,6 +490,7 @@ class AdnlTransport:
             reuse_port=True
         )
         self.listener = self.loop.create_task(self.listen())
+        self.inited = True
         return
 
     def _get_default_message(self):
@@ -554,6 +556,7 @@ class AdnlTransport:
         while not self.listener.cancelled():
             await asyncio.sleep(0)
         self.transport.abort()
+        self.inited = False
 
     async def send_query_message(self, tl_schema_name: str, data: dict, peer: Node) -> typing.List[dict]:
         message = {

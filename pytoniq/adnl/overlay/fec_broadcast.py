@@ -5,6 +5,7 @@ import time
 
 from pytoniq_core.crypto.ciphers import Server
 from pytoniq_core.crypto.signature import verify_sign
+from pytoniq_core.tl.generator import TlSchemas
 
 from .overlay import OverlayTransport
 from .privacy import BroadcastCheckResult
@@ -48,7 +49,7 @@ class BroadcastFec:
         self.init_fec_type()
 
     def run_checks(self):
-        if self.fec_type['data_size'] > 16 << 20:
+        if self.fec_type['data_size'] > self._overlay.max_fec_broadcast_size:
             raise InvalidBroadcastFec('too big fec broadcast')
 
     def init_fec_type(self):
@@ -112,14 +113,14 @@ class BroadcastFec:
     async def distribute_part(self, seqno: int):
         if seqno not in self.parts:
             return
-        data = self.parts.pop(seqno)
+        data = self.parts.get(seqno)
         peers = self._overlay.get_neighbours(5)
         tasks = []
         for peer in peers:
             if peer.get_key_id() in self.completed_neighbours:  # todo: short broadcasts
                 continue
             tasks.append(self._overlay.send_custom_message(data, peer))
-        await asyncio.gather(*tasks)
+        result = await asyncio.gather(*tasks, return_exceptions=True)
 
 
 class BroadcastFecPart:
@@ -167,7 +168,7 @@ class BroadcastFecPart:
 
     @property
     def part_hash(self):
-        return self.compute_broadcast_part_id(self._overlay, self.broadcast_hash.hex(), self.part_data_hash.hex(), self.seqno)
+        return self.compute_broadcast_part_id(self._overlay.schemas, self.broadcast_hash.hex(), self.part_data_hash.hex(), self.seqno)
 
     @property
     def serialized(self) -> bytes:
@@ -190,12 +191,12 @@ class BroadcastFecPart:
         return hashlib.sha256(broadcast_id_serialized).digest()
 
     @staticmethod
-    def compute_broadcast_part_id(overlay: OverlayTransport, broadcast_hash: str, data_hash: str, seqno: int):
+    def compute_broadcast_part_id(schemes: TlSchemas, broadcast_hash: str, data_hash: str, seqno: int):
         """
         overlay.broadcastFec.partId broadcast_hash:int256 data_hash:int256 seqno:int = overlay.broadcastFec.PartId;
         """
         data = {'broadcast_hash': broadcast_hash, 'data_hash': data_hash, 'seqno': seqno}
-        return hashlib.sha256(overlay.schemas.serialize('overlay.broadcastFec.partId', data)).digest()
+        return hashlib.sha256(schemes.serialize('overlay.broadcastFec.partId', data)).digest()
 
     def check_signature(self) -> bool:
         to_sign_data = {'hash': self.part_hash.hex(),
@@ -272,6 +273,7 @@ class BroadcastFecPart:
                 if self.untrusted:
                     if await self._overlay.check_broadcast(r, self.source_key):
                         await self._overlay.handle_broadcast(r, self.source_key)
+                        # await self.distribute()  # todo: check why we distribute only one part
                 else:
                     await self._overlay.handle_broadcast(r, self.source_key)
 
@@ -284,9 +286,89 @@ class BroadcastFecPart:
         try:
             await self.apply()
         except InvalidBroadcastFec as e:
+            self._logger.debug(f'Failed to apply broadcast: {e}, brcst: {self._data}')
             return
-        if not self.untrusted:
-            await self.distribute()
+        # if not self.untrusted:
+        await self.distribute()
 
     async def distribute(self):
         await self.brcst.distribute_part(self.seqno)
+
+    @classmethod
+    def create(
+            cls, overlay: OverlayTransport, part: bytes, data_hash: str,
+            seqno: int, flags: int, fec_type: dict, data_size: int, date: int
+    ):
+        broadcast_hash = cls.compute_broadcast_id(
+            overlay=overlay,
+            data_hash=data_hash,
+            src=overlay.client.get_key_id().hex(),
+            flags=flags,
+            fec_type=fec_type,
+            size=data_size
+        )
+        part_data_hash = hashlib.sha256(part).digest()
+        part_hash = cls.compute_broadcast_part_id(overlay.schemas, broadcast_hash.hex(), part_data_hash.hex(), seqno)
+
+        to_sign_data = {'hash': part_hash.hex(),
+                        'date': date}
+        to_sign = overlay.schemas.serialize('overlay.broadcast.toSign', to_sign_data)
+        signature = overlay.client.sign(to_sign)
+
+        part_data = {
+            '@type': 'overlay.broadcastFec',
+            'src': {'@type': 'pub.ed25519', 'key': overlay.client.ed25519_public.encode().hex()},
+            'certificate': overlay.get_certificate(),  # todo certificates
+            'data_hash': data_hash,
+            'data_size': data_size,
+            'flags': flags,
+            'data': part,
+            'seqno': seqno,
+            'fec': fec_type,
+            'date': date,
+            'signature': signature
+        }
+        return cls(overlay, part_data)
+
+
+async def create_fec_broadcast(overlay: OverlayTransport, data: bytes, flags: int):
+    if len(data) > 1 << 27:
+        raise InvalidBroadcastFec('too big data')
+
+    symbol_size = overlay.max_simple_broadcast_size
+    to_send = int((len(data) / symbol_size + 1) * 2)
+    symbols_count = (len(data) + symbol_size - 1) // symbol_size
+
+    data_hash = hashlib.sha256(data).digest()
+    ts = int(time.time())
+    fec_type = {'@type': 'fec.raptorQ', 'data_size': len(data), 'symbol_size': symbol_size, 'symbols_count': symbols_count}
+    try:
+        encoder = get_encoder(
+            overlay.raptorq_engine,
+            data,
+            symbol_size
+        )
+    except:
+        raise InvalidBroadcastFec('failed to create encoder')
+
+    seqno = 0
+    broadcast_hash = b''
+
+    while seqno < to_send:
+        for _ in range(4):
+            part = encoder.gen_symbol(seqno)
+            if part is None:
+                seqno += 1
+                continue
+            part = BroadcastFecPart.create(overlay, part, data_hash.hex(), seqno, flags, fec_type, len(data), ts)
+            try:
+                await part.run()
+            except Exception as e:
+                logging.getLogger('create_fec_broadcast').debug(f'failed to run part: {e}')
+                pass
+            broadcast_hash = part.broadcast_hash
+
+            seqno += 1
+        await asyncio.sleep(0.01)
+
+    return broadcast_hash

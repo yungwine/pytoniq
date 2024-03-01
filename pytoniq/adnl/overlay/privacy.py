@@ -31,8 +31,9 @@ class OverlayPrivacyRules:
 
     @classmethod
     def default(cls, allow_fec: bool):
+        from .overlay import OverlayTransport
         return cls(
-            max_unauth_size=16 << 20,
+            max_unauth_size=OverlayTransport.max_fec_broadcast_size,
             flags=int(allow_fec),
             authorized_keys={}
         )
@@ -72,7 +73,8 @@ class Certificate:
 
     @staticmethod
     def get_cert_default_flags(max_size: int) -> int:
-        return (1 if max_size > 768 else 0) | 2  # allowFec if max_size > 768 else 0
+        from .overlay import OverlayTransport
+        return (1 if max_size > OverlayTransport.max_simple_broadcast_size else 0) | 2  # allowFec if max_size > 768 else 0
 
     def to_sign(self, overlay_id: bytes, issued_to: bytes) -> bytes:
         """

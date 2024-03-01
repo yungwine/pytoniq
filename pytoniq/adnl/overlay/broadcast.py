@@ -27,32 +27,11 @@ class BroadcastSimple:
         self._overlay = overlay_transport
         self._data = data
         self.is_valid = False
-        self.data_bytes = self._overlay.schemas.serialize(self._data['data'].get('@type'), data['data'])
-        """подумать нужна ли автоматическая десер простых бродкастов и вообще над байтами """
+        if isinstance(data['data'], dict):
+            self.data_bytes = self._overlay.schemas.serialize(self._data['data'].get('@type'), data['data'])
+        else:
+            self.data_bytes = self._data['data']
         self._logger = logging.getLogger(self.__class__.__name__)
-
-    @classmethod
-    def create(cls, overlay: OverlayTransport, data: bytes, flags: int = 0) -> "BroadcastSimple":
-        ts = int(time.time())
-        data_hash = hashlib.sha256(data).digest()
-        to_sign_data = {
-            'hash': cls.compute_broadcast_id(overlay, data_hash.hex(), overlay.client.get_key_id().hex(), flags),
-            'date': ts
-        }
-        to_sign = overlay.schemas.serialize('overlay.broadcast.toSign', to_sign_data)
-        signature = overlay.client.sign(to_sign)
-
-        from_ = {'@type': 'pub.ed25519', 'key': overlay.client.ed25519_public.encode().hex()}
-        broadcast = {
-            '@type': 'overlay.broadcast',
-            'src': from_,
-            'certificate': {'@type': 'overlay.emptyCertificate'},
-            'flags': flags,
-            'data': data,
-            'signature': signature,
-            'date': ts
-        }
-        return cls(overlay, broadcast)
 
     @property
     def date(self) -> int:
@@ -121,27 +100,45 @@ class BroadcastSimple:
             return
         self._overlay.broadcasts[self.hash] = self
         source_key_id = Server('', 0, self.source_key).get_key_id()
+        data = self._data['data']
+        if isinstance(data, bytes):
+            try:
+                data, _ = self._overlay.schemas.deserialize(data)
+            except:
+                pass
         if not self.is_valid:
-            if await self._overlay.check_broadcast(self._data['data'], source_key_id):
+            if await self._overlay.check_broadcast(data, source_key_id):
                 self.is_valid = True
         if self.is_valid:
-            await self._overlay.handle_broadcast(self._data['data'], source_key_id)
+            await self._overlay.handle_broadcast(data, source_key_id)
             await self.distribute()
 
     async def distribute(self) -> None:
-        try:
-            self.run_checks()
-        except InvalidBroadcast as e:
-            self._logger.debug(f'Failed to check broadcast: {e}, brcst: {self._data}')
-            return
-        self._overlay.broadcasts.add(self.hash)
         tasks = []
         peers = self._overlay.get_neighbours(3)
         for peer in peers:
             tasks.append(self._overlay.send_custom_message(self.serialized, peer))
         result = await asyncio.gather(*tasks, return_exceptions=True)
-        failed = 0
-        for r in result:
-            if isinstance(r, Exception):
-                failed += 1
-        self._logger.debug(f'Spread broadcast: {failed} failed out of {len(result)}')
+
+    @classmethod
+    def create(cls, overlay: OverlayTransport, data: bytes, flags: int = 0) -> "BroadcastSimple":
+        ts = int(time.time())
+        data_hash = hashlib.sha256(data).digest()
+        to_sign_data = {
+            'hash': cls.compute_broadcast_id(overlay, data_hash.hex(), overlay.client.get_key_id().hex(), flags).hex(),
+            'date': ts
+        }
+        to_sign = overlay.schemas.serialize('overlay.broadcast.toSign', to_sign_data)
+        signature = overlay.client.sign(to_sign)
+
+        from_ = {'@type': 'pub.ed25519', 'key': overlay.client.ed25519_public.encode().hex()}
+        broadcast = {
+            '@type': 'overlay.broadcast',
+            'src': from_,
+            'certificate': {'@type': 'overlay.emptyCertificate'},
+            'flags': flags,
+            'data': data,
+            'signature': signature,
+            'date': ts
+        }
+        return cls(overlay, broadcast)

@@ -26,7 +26,24 @@ class OverlayNode(Node):
             transport: "OverlayTransport"
     ):
         self.transport: "OverlayTransport" = None
+        self.signature = b''
+        self.version = 0
         super().__init__(peer_host, peer_port, peer_pub_key, transport)
+
+    def add_params(self, signature: bytes, version: int):
+        self.signature = signature
+        self.version = version
+
+    def to_tl(self) -> typing.Optional[dict]:
+        if not self.signature:
+            return None
+        return {
+            '@type': 'overlay.node',
+            'id': {'@type': 'pub.ed25519', 'key': self.ed25519_public.encode().hex()},
+            'overlay': self.transport.overlay_id,
+            'version': self.version,
+            'signature': self.signature
+        }
 
     async def send_ping(self) -> None:
         peers = [
@@ -36,6 +53,8 @@ class OverlayNode(Node):
 
 
 class OverlayTransport(AdnlTransport):
+    max_simple_broadcast_size = 768
+    max_fec_broadcast_size = 16 << 20
 
     def __init__(self,
                  private_key: bytes = None,
@@ -61,9 +80,10 @@ class OverlayTransport(AdnlTransport):
             self.rules = kwargs['rules']
             assert isinstance(self.rules, OverlayPrivacyRules), 'rules must be instance of OverlayPrivacyRules'
         else:
-            self.rules = OverlayPrivacyRules.default(allow_fec=kwargs.get('allow_fec', True))  # todo: False
+            self.rules = OverlayPrivacyRules.default(allow_fec=kwargs.get('allow_fec', False))
         if self.rules.allow_fec:
             self.raptorq_engine = kwargs.get('raptorq_engine', None)
+        self.max_peers = kwargs.get('max_peers', 30)
 
     @staticmethod
     def get_overlay_id(zero_state_file_hash: typing.Union[bytes, str],
@@ -93,11 +113,11 @@ class OverlayTransport(AdnlTransport):
         return hashlib.sha256(key_id).digest().hex()
 
     @classmethod
-    def get_mainnet_overlay_id(cls, workchain: int = 0, shard: int = -9223372036854775808) -> str:
+    def get_mainnet_overlay_id(cls, workchain: int = 0, shard: int = -1 << 63) -> str:
         return cls.get_overlay_id('5e994fcf4d425c0a6ce6a792594b7173205f740a39cd56f537defd28b48a0f6e', workchain, shard)
 
     @classmethod
-    def get_testnet_overlay_id(cls, workchain: int = 0, shard: int = -9223372036854775808) -> str:
+    def get_testnet_overlay_id(cls, workchain: int = 0, shard: int = -1 << 63) -> str:
         return cls.get_overlay_id('67e20ac184b9e039a62667acc3f9c00f90f359a76738233379efa47604980ce8', workchain, shard)
 
     async def _process_query_message(self, message: dict, peer: OverlayNode):
@@ -114,8 +134,8 @@ class OverlayTransport(AdnlTransport):
             if data[0]['@type'] in ('overlay.query', 'overlay.message'):
                 assert data[0]['overlay'] == self.overlay_id, 'Unknown overlay id received'
             data = data[-1]
+        # Force broadcast distributing: Note that this is almost takes no time and will be done in the background
         if data['@type'] == 'overlay.broadcast':
-            # Force broadcast distributing: Note that this is almost takes no time and will be done in the background
             from .broadcast import BroadcastSimple
             await BroadcastSimple(self, data).run()
             return
@@ -206,11 +226,11 @@ class OverlayTransport(AdnlTransport):
         }
 
     async def get_random_peers(self, peer: OverlayNode):
-        overlay_node = self.get_signed_myself()
-
-        peers = [
-            overlay_node
-        ]
+        known_peers = self.get_neighbours(5)
+        peers = [self.get_signed_myself()]
+        for peer in known_peers:
+            if peer.to_tl():
+                peers.append(peer.to_tl())
         return await self.send_query_message(tl_schema_name='overlay.getRandomPeers', data={'peers': {'nodes': peers}},
                                              peer=peer)
 
@@ -222,8 +242,9 @@ class OverlayTransport(AdnlTransport):
         while len(self.broadcasts) > 1000:
             brcst = next(i)
             del self.broadcasts[brcst]
-
-        # todo fec broadcast cleanup
+        for b_hash, b in list(self.fec_broadcasts.items()):
+            if b.date < time.time() - 60:
+                del self.fec_broadcasts[b_hash]
 
     def check_source_eligible(self, source: bytes, cert: dict, size: int, is_feq: bool) -> BroadcastCheckResult:
         if size == 0:
@@ -294,3 +315,11 @@ class OverlayTransport(AdnlTransport):
 
     def set_default_broadcast_handler(self, handler: typing.Callable):
         self.set_broadcast_handler(None, handler)
+
+    def get_certificate(self):
+        data = {'@type': 'overlay.certificate', 'issued_by': {'@type': 'pub.ed25519', 'key': self.client.ed25519_public.encode().hex()},
+                'expire_at': int(time.time()) + 3600, 'max_size': 16 << 20, 'signature': b''}
+        to_sign = self.schemas.serialize('overlay.certificate', data)
+        signature = self.client.sign(to_sign)
+        data['signature'] = signature
+        return data
