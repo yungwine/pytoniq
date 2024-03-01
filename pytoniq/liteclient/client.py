@@ -10,7 +10,7 @@ import requests
 
 from .sync import choose_key_block, sync
 from .utils import init_mainnet_block, init_testnet_block
-from pytoniq_core.boc import Slice, Cell
+from pytoniq_core.boc import Slice, Cell, begin_cell
 from pytoniq_core.proof.check_proof import check_block_header_proof, check_shard_proof, check_account_proof, check_proof, \
     check_block_signatures, compute_validator_set
 from pytoniq_core.boc.address import Address
@@ -447,8 +447,10 @@ class LiteClient:
             if not trusted and not self.trust_level:
                 await self.get_mc_block_proof(known_block=self.last_key_block, target_block=block)
         shard_account = check_account_proof(proof=result['proof'], shrd_blk=shrd_blk, address=address, account_state_root=account_state_root, return_account_descr=True)
+        account = Account.deserialize(account_state_root.begin_parse())
+        full_shard_account_cell = begin_cell().store_bytes(shard_account.cell.begin_parse().load_bytes(40)).store_ref(account_state_root).end_cell()
 
-        return Account.deserialize(account_state_root.begin_parse()), shard_account
+        return account, ShardAccount.deserialize(full_shard_account_cell.begin_parse())
 
     async def get_account_state(self, address: typing.Union[str, Address]) -> SimpleAccount:
         """
@@ -923,7 +925,11 @@ class LiteClient:
         state_proof = Cell.one_from_boc(result['state_proof'])
         return self.unpack_config(blk, config_proof, state_proof)
 
-    async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]]):
+    async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]]) -> typing.Dict[str, typing.Optional[Cell]]:
+        """
+        :param library_list: list of library hashes in bytes or string hex form
+        :return: dict {library_hash_hex: library Cell or None if library not found}
+        """
         if len(library_list) > 16:
             raise LiteClientError('maximum libraries num could be requested is 16')
         library_list = [lib.hex() if isinstance(lib, bytes) else lib for lib in library_list]
@@ -933,12 +939,16 @@ class LiteClient:
 
         libs = result['result']
 
-        if self.trust_level < 2:
-            for i, lib in enumerate(libs):
-                if Cell.one_from_boc(lib['data']).hash.hex() != library_list[i]:
+        result = {lib['hash']: Cell.one_from_boc(lib['data']) for lib in libs}
+        for lib in library_list:
+            if lib not in result:
+                result[lib] = None
+                continue
+            if self.trust_level < 2:
+                if result[lib].hash.hex() != lib:
                     raise LiteClientError('library hash mismatch')
 
-        return libs
+        return result
 
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False):
         data = {'id': blk.to_dict()}

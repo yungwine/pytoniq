@@ -48,7 +48,11 @@ async def test_methods(client: LiteClient):
     await client.get_config_all()
     await client.raw_get_block(client.last_mc_block)
     lib = 'c245262b8c2bce5e9fcd23ca334e1d55fa96d4ce69aa2817ded717cefcba3f73'
-    await client.get_libraries([lib, lib])
+    fake_lib = '0000000000000000000000000000000000000000000000000000000000000000'
+    res = await client.get_libraries([lib, lib, fake_lib, lib])
+    assert len(res) == 2
+    assert res[lib].hash.hex() == lib
+    assert res[fake_lib] is None
 
 
 @pytest.mark.asyncio
