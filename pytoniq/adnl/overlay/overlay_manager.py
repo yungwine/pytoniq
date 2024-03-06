@@ -67,11 +67,12 @@ class OverlayManager:
                 self.logger.debug(f'Got {len(self.overlay.peers)} first peers')
                 await asyncio.sleep(10)
                 continue
+            if len(self.overlay.peers) >= self.max_peers:
+                await asyncio.sleep(10)
+                continue
             clients = []
             tasks = []
             for _, peer in list(self.overlay.peers.items()):
-                if len(self.overlay.peers) > self.max_peers:
-                    return 0
                 self.logger.debug(f'getting nodes from peer {peer.get_key_id().hex()}')
                 if not peer.connected:
                     self.logger.debug(f'peer {peer.get_key_id().hex()} is already not connected')
@@ -108,7 +109,7 @@ class OverlayManager:
 
             tasks = []
             for new_client in clients:
-                if len(self.overlay.peers) > self.max_peers:
+                if len(self.overlay.peers) + len(tasks) >= self.max_peers:
                     break
                 if new_client is not None:
                     tasks.append(try_connect(new_client))
