@@ -138,10 +138,12 @@ class OverlayTransport(AdnlTransport):
         if data['@type'] == 'overlay.broadcast':
             from .broadcast import BroadcastSimple
             await BroadcastSimple(self, data).run()
+            self.bcast_gc()
             return
         if data['@type'] == 'overlay.broadcastFec':
             from .fec_broadcast import BroadcastFecPart
             await BroadcastFecPart(self, data).run()
+            self.bcast_gc()
             return
 
         await self._process_custom_message_handler(data, peer)
@@ -238,7 +240,7 @@ class OverlayTransport(AdnlTransport):
         return await self.send_query_message(tl_schema_name='tonNode.getCapabilities', data={}, peer=peer)
 
     def bcast_gc(self):
-        i = iter(self.broadcasts)
+        i = iter(self.broadcasts.copy())
         while len(self.broadcasts) > 1000:
             brcst = next(i)
             del self.broadcasts[brcst]
