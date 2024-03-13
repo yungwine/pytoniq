@@ -12,7 +12,7 @@ from pytoniq_core.crypto.signature import verify_sign
 from pytoniq_core.tl import TlGenerator
 
 from .adnl import Node, AdnlTransport
-from .overlay import OverlayNode, OverlayTransport
+from .overlay.overlay import OverlayNode, OverlayTransport
 
 
 class DhtError(Exception):
@@ -256,8 +256,9 @@ class DhtClient:
         port = node_addr['port']
         pub_k = base64.b64encode(bytes.fromhex(resp['value']['key']['id']['key'])).decode()
 
-        node = OverlayNode(peer_host=host, peer_port=port, peer_pub_key=pub_k, transport=overlay_transport)
-        return node
+        onode = OverlayNode(peer_host=host, peer_port=port, peer_pub_key=pub_k, transport=overlay_transport)
+        onode.add_params(node['signature'], node['version'])
+        return onode
 
     @classmethod
     def from_config(cls, config: dict, adnl_transport: AdnlTransport):

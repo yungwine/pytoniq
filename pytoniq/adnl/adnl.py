@@ -19,7 +19,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
     def __init__(self, timeout: int = 10):
         # https://github.com/eerimoq/asyncudp/blob/main/asyncudp/__init__.py
         self._error = None
-        self._packets = asyncio.Queue(10000)
+        self._packets = asyncio.Queue(100000)
         self.timeout = timeout
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -130,6 +130,7 @@ class AdnlTransport:
         self.query_handlers: typing.Dict[str, typing.Callable] = {}
         self.custom_handlers: typing.Dict[str, typing.Callable] = {}
         self._message_parts: typing.Dict[str, dict] = {}  # {'hash': {'remained': int, 'parts': list}}
+        self.inited = False
 
         """########### connection ###########"""
         self.transport: asyncio.DatagramTransport = None
@@ -283,11 +284,13 @@ class AdnlTransport:
             self.logger.debug(f'Received message {message} from peer {peer.get_key_id().hex()}')
         if message['@type'] == 'adnl.message.answer':
             future = self.tasks.pop(message.get('query_id'))
-            future.set_result(message['answer'])
+            if not future.done():
+                future.set_result(message['answer'])
         elif message['@type'] == 'adnl.message.confirmChannel':
             if message.get('peer_key') in self.tasks:
                 future = self.tasks.pop(message.get('peer_key'))
-                future.set_result(message)
+                if not future.done():
+                    future.set_result(message)
         elif message['@type'] == 'adnl.message.query':
             if peer is None:
                 self.logger.info(f'Received query message from unknown peer: {message}')
@@ -487,6 +490,7 @@ class AdnlTransport:
             reuse_port=True
         )
         self.listener = self.loop.create_task(self.listen())
+        self.inited = True
         return
 
     def _get_default_message(self):
@@ -552,6 +556,7 @@ class AdnlTransport:
         while not self.listener.cancelled():
             await asyncio.sleep(0)
         self.transport.abort()
+        self.inited = False
 
     async def send_query_message(self, tl_schema_name: str, data: dict, peer: Node) -> typing.List[dict]:
         message = {

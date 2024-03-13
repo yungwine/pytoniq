@@ -25,5 +25,8 @@ setuptools.setup(
         "pytoniq-core>=0.1.31",
         "requests>=2.31.0",
         "setuptools>=65.5.1",
-    ]
+    ],
+    extras_require={
+        'rldp': ["pyraptorq>=0.1.2"],
+    },
 )
