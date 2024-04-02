@@ -25,7 +25,7 @@ from pytoniq_core.tlb.transaction import Transaction
 from pytoniq_core.tlb.utils import deserialize_shard_hashes
 
 from pytoniq_core.tlb.vm_stack import VmStack
-from pytoniq_core.tlb.block import Block, ShardDescr, BinTree, ShardStateUnsplit, KeyExtBlkRef
+from pytoniq_core.tlb.block import Block, ShardDescr, BinTree, ShardStateUnsplit, KeyExtBlkRef, BlockExtra
 from pytoniq_core.tlb.account import Account, SimpleAccount, ShardAccount, AccountBlock
 
 
@@ -542,17 +542,18 @@ class LiteClient:
                 await self.get_mc_block_proof(known_block=self.last_key_block, target_block=block)
 
             proof_cells = Cell.from_boc(result['proof'])
+            if len(proof_cells) == 2:
+                state_hash = check_block_header_proof(proof_cells[0][0], block_hash=block.root_hash, store_state_hash=True)
+                check_proof(proof_cells[1], state_hash)
 
-            state_hash = check_block_header_proof(proof_cells[0][0], block_hash=block.root_hash, store_state_hash=True)
+                shard_state = ShardStateUnsplit.deserialize(proof_cells[1][0].begin_parse())
 
-            check_proof(proof_cells[1], state_hash)
-
-            shard_state = ShardStateUnsplit.deserialize(proof_cells[1][0].begin_parse())
-
-            assert shard_state.shard_id.workchain_id == block.workchain
-            assert shard_state.seq_no == block.seqno
-
-            assert shard_hashes_cell[0].get_hash(0) == proof_cells[1][0][3][0].get_hash(0)  # masterchain_state_extra -> shard_hashes
+                assert shard_state.shard_id.workchain_id == block.workchain
+                assert shard_state.seq_no == block.seqno
+                assert shard_hashes_cell[0].get_hash(0) == proof_cells[1][0][3][0].get_hash(0)  # masterchain_state_extra -> shard_hashes
+            else:
+                check_block_header_proof(proof_cells[0][0], block_hash=block.root_hash, store_state_hash=False)
+                assert shard_hashes_cell[0].get_hash(0) == proof_cells[0][0][3][3][0].get_hash(0)  # masterchain_state_extra -> shard_hashes
 
         return deserialize_shard_hashes(shard_hashes_cell.begin_parse())
 
