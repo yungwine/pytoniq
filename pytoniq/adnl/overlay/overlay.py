@@ -137,12 +137,19 @@ class OverlayTransport(AdnlTransport):
         # Force broadcast distributing: Note that this is almost takes no time and will be done in the background
         if data['@type'] == 'overlay.broadcast':
             from .broadcast import BroadcastSimple
-            await BroadcastSimple(self, data).run()
+            try:
+                await BroadcastSimple(self, data).run()
+            except Exception as e:
+                self.logger.debug(f'Error while processing broadcast: {type(e)}: {e}')
+                return
             self.bcast_gc()
             return
         if data['@type'] == 'overlay.broadcastFec':
             from .fec_broadcast import BroadcastFecPart
-            await BroadcastFecPart(self, data).run()
+            try:
+                await BroadcastFecPart(self, data).run()
+            except Exception as e:
+                self.logger.debug(f'Error while processing broadcastFec: {type(e)}: {e}')
             self.bcast_gc()
             return
 
