@@ -23,7 +23,7 @@ def main():
                 continue
             if 'async def' in line:
                 name = line[line.index('    async def ') + 14: line.index('(')]
-                if name in exceptions:
+                if name in exceptions or name.startswith('_'):
                     continue
                 tmp += line
             if tmp and ':\n' in line:

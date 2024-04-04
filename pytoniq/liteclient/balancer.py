@@ -326,6 +326,17 @@ class LiteBalancer:
                              , **kwargs) -> list:
         return await self.execute_method('run_get_method', **self._get_args(locals())) 
 
+    async def run_get_method_remote(self, address: typing.Union[Address, str],
+                                    method: typing.Union[int, str], stack: list,
+                                    block: BlockIdExt = None
+                                    , **kwargs) -> list:
+        return await self.execute_method('run_get_method_remote', **self._get_args(locals())) 
+
+    async def run_get_method_local(self, address: typing.Union[Address, str],
+                                   method: typing.Union[int, str], stack: list,
+                                   block: BlockIdExt = None, gas_limit: int = 300000, **kwargs) -> list:
+        return await self.execute_method('run_get_method_local', **self._get_args(locals())) 
+
     async def raw_get_shard_info(self, block: typing.Optional[BlockIdExt] = None,
                                  wc: int = 0, shard: int = -9223372036854775808,
                                  exact: bool = True
