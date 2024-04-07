@@ -610,6 +610,8 @@ class AdnlTransport:
 
         try:
             messages = await self.send_message_outside_channel(data, peer)
+        except Exception as e:
+            raise e
         finally:
             self.pending_channels.pop(peer.key_id, None)
         confirm_channel = messages[0]
