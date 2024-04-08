@@ -399,6 +399,9 @@ class LiteBalancer:
     async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]], **kwargs) -> typing.Dict[str, typing.Optional[Cell]]:
         return await self.execute_method('get_libraries', **self._get_args(locals())) 
 
+    async def get_out_msg_queue_sizes(self, wc: int = None, shard: int = None, **kwargs):
+        return await self.execute_method('get_out_msg_queue_sizes', **self._get_args(locals())) 
+
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False, **kwargs):
         return await self.execute_method('get_shard_block_proof', **self._get_args(locals())) 
 

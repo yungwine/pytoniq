@@ -1058,6 +1058,20 @@ class LiteClient:
 
         return result
 
+    async def get_out_msg_queue_sizes(self, wc: int = None, shard: int = None):
+        """
+        If wc and shard are not None, returns queue size for all children shards of the provided shard.
+        If both are None, returns queue size for all shards for all workchains.
+        """
+        data = {}
+        mode = 0b00
+        assert not (wc is None) ^ (shard is None), 'workchain and shard must be both set or both not set'
+        if wc is not None or shard is not None:
+            data['wc'] = wc
+            data['shard'] = shard
+            mode += 0b01
+        return await self.liteserver_request('getOutMsgQueueSizes', data | {'mode': mode})
+
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False):
         data = {'id': blk.to_dict()}
 
