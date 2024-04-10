@@ -326,6 +326,17 @@ class LiteBalancer:
                              , **kwargs) -> list:
         return await self.execute_method('run_get_method', **self._get_args(locals())) 
 
+    async def run_get_method_remote(self, address: typing.Union[Address, str],
+                                    method: typing.Union[int, str], stack: list,
+                                    block: BlockIdExt = None
+                                    , **kwargs) -> list:
+        return await self.execute_method('run_get_method_remote', **self._get_args(locals())) 
+
+    async def run_get_method_local(self, address: typing.Union[Address, str],
+                                   method: typing.Union[int, str], stack: list,
+                                   block: BlockIdExt = None, gas_limit: int = 300000, **kwargs) -> list:
+        return await self.execute_method('run_get_method_local', **self._get_args(locals())) 
+
     async def raw_get_shard_info(self, block: typing.Optional[BlockIdExt] = None,
                                  wc: int = 0, shard: int = -9223372036854775808,
                                  exact: bool = True
@@ -387,6 +398,18 @@ class LiteBalancer:
 
     async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]], **kwargs) -> typing.Dict[str, typing.Optional[Cell]]:
         return await self.execute_method('get_libraries', **self._get_args(locals())) 
+
+    async def get_out_msg_queue_sizes(self, wc: int = None, shard: int = None, **kwargs):
+        return await self.execute_method('get_out_msg_queue_sizes', **self._get_args(locals())) 
+
+    async def nonfinal_get_validator_groups(self, wc: int = None, shard: int = None, **kwargs):
+        return await self.execute_method('nonfinal_get_validator_groups', **self._get_args(locals())) 
+
+    async def nonfinal_raw_get_candidate(self, candidate_id: dict, **kwargs):
+        return await self.execute_method('nonfinal_raw_get_candidate', **self._get_args(locals())) 
+
+    async def nonfinal_get_candidate(self, candidate_id: dict, **kwargs):
+        return await self.execute_method('nonfinal_get_candidate', **self._get_args(locals())) 
 
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False, **kwargs):
         return await self.execute_method('get_shard_block_proof', **self._get_args(locals())) 

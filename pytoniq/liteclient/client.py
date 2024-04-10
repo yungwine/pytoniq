@@ -4,9 +4,11 @@ import logging
 import asyncio
 import socket
 import struct
+import time
 import typing
 
 import requests
+from pytoniq_core import HashMap, Builder
 
 from .sync import choose_key_block, sync
 from .utils import init_mainnet_block, init_testnet_block
@@ -25,7 +27,7 @@ from pytoniq_core.tlb.transaction import Transaction
 from pytoniq_core.tlb.utils import deserialize_shard_hashes
 
 from pytoniq_core.tlb.vm_stack import VmStack
-from pytoniq_core.tlb.block import Block, ShardDescr, BinTree, ShardStateUnsplit, KeyExtBlkRef
+from pytoniq_core.tlb.block import Block, ShardDescr, BinTree, ShardStateUnsplit, KeyExtBlkRef, BlockExtra
 from pytoniq_core.tlb.account import Account, SimpleAccount, ShardAccount, AccountBlock
 
 
@@ -104,6 +106,11 @@ class LiteClient:
         self.pong_sch = self.schemas.get_by_name('tcp.pong')
         self.adnl_query_sch = self.schemas.get_by_name('adnl.message.query')
         self.ls_query_sch = self.schemas.get_by_name('liteServer.query')
+
+        """########### Get methods ###########"""
+        self._block_states = {}  # block root hash : block state
+        self.libs = {}  # library hash : library cell
+        self.configs = {}  # config hash : config cell
 
     def encrypt(self, data: bytes) -> bytes:
         return aes_ctr_encrypt(self.enc_sipher, data)
@@ -446,6 +453,8 @@ class LiteClient:
             check_shard_proof(shard_proof=result['shard_proof'], blk=block, shrd_blk=shrd_blk)
             if not trusted and not self.trust_level:
                 await self.get_mc_block_proof(known_block=self.last_key_block, target_block=block)
+        if address.hash_part in self._block_states:
+            self._block_states[address.hash_part] = (result['proof'], result['shard_proof'])
         shard_account = check_account_proof(proof=result['proof'], shrd_blk=shrd_blk, address=address, account_state_root=account_state_root, return_account_descr=True)
         account = Account.deserialize(account_state_root.begin_parse())
         full_shard_account_cell = begin_cell().store_bytes(shard_account.cell.begin_parse().load_bytes(40)).store_ref(account_state_root).end_cell()
@@ -465,6 +474,14 @@ class LiteClient:
                              method: typing.Union[int, str], stack: list,
                              block: BlockIdExt = None
                              ) -> list:
+        return await self.run_get_method_remote(address, method, stack, block)  # will be replaced with run_get_method_local in future
+
+    async def run_get_method_remote(self, address: typing.Union[Address, str],
+                                    method: typing.Union[int, str], stack: list,
+                                    block: BlockIdExt = None
+                                    ) -> list:
+        if self.trust_level <= 1:
+            self.logger.warning('remote get method result is not provable, use run_get_method_local for local tvm execution')
         mode = 7  # 111
         if block is None:
             block = self.last_mc_block
@@ -495,6 +512,92 @@ class LiteClient:
             check_shard_proof(shard_proof=result['shard_proof'], blk=block, shrd_blk=shrd_blk)
 
         return VmStack.deserialize(Slice.one_from_boc(result['result']))
+
+    async def _get_config_cell(self, blk: BlockIdExt):
+        res = await self.liteserver_request('getConfigAll', {'mode': 0, 'id': blk.to_dict()})
+        config_proof = Cell.one_from_boc(res['config_proof'])
+        shard = ShardStateUnsplit.deserialize(config_proof[0].begin_parse())
+        config = shard.custom.config.config
+        hm = HashMap(32, value_serializer=lambda src, dest: dest.store_ref(src.to_cell()))
+        hm.map = config
+        return hm.serialize()
+
+    @staticmethod
+    def _find_libs(cell: Cell, libs: list):
+        if cell.type_ == 2:
+            libs.append(cell.begin_parse().preload_bytes(32))
+            return True
+        res = False
+        for ref in cell.refs:  # trick to avoid copying, don't repeat this at home
+            if LiteClient._find_libs(ref, libs):
+                res = True
+        return res
+
+    async def run_get_method_local(self, address: typing.Union[Address, str],
+                                   method: typing.Union[int, str], stack: list,
+                                   block: BlockIdExt = None, gas_limit: int = 300000) -> list:
+        if block is None:
+            block = self.last_mc_block
+        try:
+            from pytvm.tvm_emulator import TvmEmulator
+        except ImportError:
+            raise ImportError('pytvm is required to run get method locally. Use `pip install "pytoniq[tvm]"` or `pip install pytvm`')
+        if isinstance(address, Address):
+            address = address.to_str()
+        hash_part = Address(address).hash_part
+        self._block_states[hash_part] = None
+        try:
+            _, account = await self.raw_get_account_state(address, block)
+        finally:
+            shard_state_boc, mc_state_boc = self._block_states.pop(hash_part)
+        state = account.account.storage.state
+        if state.type_ != 'account_active':
+            raise RunGetMethodError(address=address, method=method, exit_code=-256)
+        emulator = TvmEmulator(
+            code=account.account.storage.state.state_init.code,
+            data=account.account.storage.state.state_init.data
+        )
+        emulator.set_gas_limit(gas_limit)
+        # set c7
+
+        # get config
+        config = Cell.from_boc(mc_state_boc)[1][0][3][1]
+        assert config.type_ == 1  # pruned branch
+        config_hash = config.get_hash(0)
+        if config_hash not in self.configs:
+            self.configs[config_hash] = await self._get_config_cell(block)
+        sstate = ShardStateUnsplit.deserialize(Cell.from_boc(shard_state_boc)[1][0].begin_parse())
+        emulator.set_c7(
+            address=address,
+            unixtime=sstate.gen_utime,
+            balance=account.account.storage.balance.grams,
+            rand_seed_hex=get_random(32).hex(),
+            config=self.configs[config_hash]
+        )
+
+        # set libs
+        libs = []
+        result_libs = {}
+        self._find_libs(account.account.storage.state.state_init.code, libs)
+        libs = [i for i in libs if i.hex() not in self.libs]
+        libs = [libs[i:i + 16] for i in range(0, len(libs), 16)]  # split libs into 16-element chunks
+        for i in libs:
+            result_libs |= await self.get_libraries(i)
+
+        def value_serializer(dest: Builder, src: Cell):
+            if src is not None:
+                dest.store_uint(0, 2).store_ref(src).store_maybe_ref(None)
+        hm = HashMap(256, value_serializer=value_serializer)
+        hm.map = self.libs
+        if self.libs:
+            emulator.set_libraries(hm.serialize())
+
+        # todo set prev blocks info
+
+        result = emulator.run_get_method(method, stack)
+        if result['vm_exit_code'] != 0:
+            raise RunGetMethodError(address=address, method=method, exit_code=result['vm_exit_code'])
+        return result['stack']
 
     async def raw_get_shard_info(self, block: typing.Optional[BlockIdExt] = None,
                                  wc: int = 0, shard: int = -9223372036854775808,
@@ -542,17 +645,18 @@ class LiteClient:
                 await self.get_mc_block_proof(known_block=self.last_key_block, target_block=block)
 
             proof_cells = Cell.from_boc(result['proof'])
+            if len(proof_cells) == 2:
+                state_hash = check_block_header_proof(proof_cells[0][0], block_hash=block.root_hash, store_state_hash=True)
+                check_proof(proof_cells[1], state_hash)
 
-            state_hash = check_block_header_proof(proof_cells[0][0], block_hash=block.root_hash, store_state_hash=True)
+                shard_state = ShardStateUnsplit.deserialize(proof_cells[1][0].begin_parse())
 
-            check_proof(proof_cells[1], state_hash)
-
-            shard_state = ShardStateUnsplit.deserialize(proof_cells[1][0].begin_parse())
-
-            assert shard_state.shard_id.workchain_id == block.workchain
-            assert shard_state.seq_no == block.seqno
-
-            assert shard_hashes_cell[0].get_hash(0) == proof_cells[1][0][3][0].get_hash(0)  # masterchain_state_extra -> shard_hashes
+                assert shard_state.shard_id.workchain_id == block.workchain
+                assert shard_state.seq_no == block.seqno
+                assert shard_hashes_cell[0].get_hash(0) == proof_cells[1][0][3][0].get_hash(0)  # masterchain_state_extra -> shard_hashes
+            else:
+                check_block_header_proof(proof_cells[0][0], block_hash=block.root_hash, store_state_hash=False)
+                assert shard_hashes_cell[0].get_hash(0) == proof_cells[0][0][3][3][0].get_hash(0)  # masterchain_state_extra -> shard_hashes
 
         return deserialize_shard_hashes(shard_hashes_cell.begin_parse())
 
@@ -949,6 +1053,37 @@ class LiteClient:
                     raise LiteClientError('library hash mismatch')
 
         return result
+
+    async def get_out_msg_queue_sizes(self, wc: int = None, shard: int = None):
+        """
+        If wc and shard are not None, returns queue size for all children shards of the provided shard.
+        If both are None, returns queue size for all shards for all workchains.
+        """
+        data = {}
+        mode = 0b0
+        assert not (wc is None) ^ (shard is None), 'workchain and shard must be both set or both not set'
+        if wc is not None or shard is not None:
+            data['wc'] = wc
+            data['shard'] = shard
+            mode += 0b01
+        return await self.liteserver_request('getOutMsgQueueSizes', data | {'mode': mode})
+
+    async def nonfinal_get_validator_groups(self, wc: int = None, shard: int = None):
+        data = {}
+        mode = 0b0
+        assert not (wc is None) ^ (shard is None), 'workchain and shard must be both set or both not set'
+        if wc is not None or shard is not None:
+            data['wc'] = wc
+            data['shard'] = shard
+            mode = 3
+        return await self.liteserver_request('nonfinal.getValidatorGroups', data | {'mode': mode})
+
+    async def nonfinal_raw_get_candidate(self, candidate_id: dict):
+        return await self.liteserver_request('nonfinal.getCandidate', {'id': candidate_id})
+
+    async def nonfinal_get_candidate(self, candidate_id: dict):
+        resp = await self.nonfinal_raw_get_candidate(candidate_id)
+        return Block.deserialize(Slice.one_from_boc(resp['data']))
 
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False):
         data = {'id': blk.to_dict()}

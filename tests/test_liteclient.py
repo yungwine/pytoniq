@@ -61,3 +61,6 @@ async def test_get_method(client: LiteClient):
     result = await client.run_get_method(address='EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', method='seqno',
                                          stack=[])
     assert isinstance(result[0], int)
+    result2 = await client.run_get_method_local(address='EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', method='seqno',
+                                                stack=[])
+    assert result2 == result
