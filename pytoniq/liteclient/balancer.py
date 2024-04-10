@@ -402,6 +402,15 @@ class LiteBalancer:
     async def get_out_msg_queue_sizes(self, wc: int = None, shard: int = None, **kwargs):
         return await self.execute_method('get_out_msg_queue_sizes', **self._get_args(locals())) 
 
+    async def nonfinal_get_validator_groups(self, wc: int = None, shard: int = None, **kwargs):
+        return await self.execute_method('nonfinal_get_validator_groups', **self._get_args(locals())) 
+
+    async def nonfinal_raw_get_candidate(self, candidate_id: dict, **kwargs):
+        return await self.execute_method('nonfinal_raw_get_candidate', **self._get_args(locals())) 
+
+    async def nonfinal_get_candidate(self, candidate_id: dict, **kwargs):
+        return await self.execute_method('nonfinal_get_candidate', **self._get_args(locals())) 
+
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False, **kwargs):
         return await self.execute_method('get_shard_block_proof', **self._get_args(locals())) 
 
