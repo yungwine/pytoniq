@@ -291,10 +291,6 @@ class LiteClient:
 
     async def update_last_blocks(self):
         self.last_mc_block = await self.get_trusted_last_mc_block()
-        # if self.last_key_block is None:
-        #     block = await self.raw_get_block(self.last_mc_block)
-        #     blk = block.state_update.new.custom.last_key_block
-        #     self.last_key_block = BlockIdExt(workchain=-1, seqno=blk.seqno, shard=-2**63, root_hash=blk.root_hash, file_hash=blk.file_hash)
         shards = await self.raw_get_all_shards_info(self.last_mc_block)
         shard_result = {}
         for k, v in shards.items():
