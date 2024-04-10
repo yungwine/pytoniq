@@ -1064,13 +1064,30 @@ class LiteClient:
         If both are None, returns queue size for all shards for all workchains.
         """
         data = {}
-        mode = 0b00
+        mode = 0b0
         assert not (wc is None) ^ (shard is None), 'workchain and shard must be both set or both not set'
         if wc is not None or shard is not None:
             data['wc'] = wc
             data['shard'] = shard
             mode += 0b01
         return await self.liteserver_request('getOutMsgQueueSizes', data | {'mode': mode})
+
+    async def nonfinal_get_validator_groups(self, wc: int = None, shard: int = None):
+        data = {}
+        mode = 0b0
+        assert not (wc is None) ^ (shard is None), 'workchain and shard must be both set or both not set'
+        if wc is not None or shard is not None:
+            data['wc'] = wc
+            data['shard'] = shard
+            mode = 3
+        return await self.liteserver_request('nonfinal.getValidatorGroups', data | {'mode': mode})
+
+    async def nonfinal_raw_get_candidate(self, candidate_id: dict):
+        return await self.liteserver_request('nonfinal.getCandidate', {'id': candidate_id})
+
+    async def nonfinal_get_candidate(self, candidate_id: dict):
+        resp = await self.nonfinal_raw_get_candidate(candidate_id)
+        return Block.deserialize(Slice.one_from_boc(resp['data']))
 
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False):
         data = {'id': blk.to_dict()}
