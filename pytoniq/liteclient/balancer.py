@@ -33,13 +33,18 @@ class LiteBalancer:
 
         self._logger = logging.getLogger(self.__class__.__name__)
 
+        self.inited = False
         self.max_req_per_peer = 100
         self.max_retries = 1
         self.timeout = timeout
 
     @property
-    def inited(self):
-        return bool(self._alive_peers)
+    def last_mc_block(self):
+        seqno = self._find_consensus_block()
+        for p in self._peers:
+            if p.last_mc_block.seqno == seqno:
+                return p.last_mc_block
+        return None
 
     def set_max_retries(self, retries_num: int) -> None:
         self.max_retries = retries_num
@@ -66,6 +71,7 @@ class LiteBalancer:
         await self._find_archives()
         self._checker = asyncio.create_task(self._check_peers())
         self._delete_unsync_peers()
+        self.inited = True
 
     async def _find_archives(self):
         tasks = []
