@@ -577,19 +577,18 @@ class LiteClient:
 
         # set libs
         libs = []
-        result_libs = {}
         self._find_libs(account.account.storage.state.state_init.code, libs)
         libs = [i for i in libs if i.hex() not in self.libs]
-        libs = [libs[i:i + 16] for i in range(0, len(libs), 16)]  # split libs into 16-element chunks
-        for i in libs:
-            result_libs |= await self.get_libraries(i)
+        if libs:
+            self.libs |= await self.get_libraries(libs)
 
-        def value_serializer(dest: Builder, src: Cell):
-            if src is not None:
-                dest.store_uint(0, 2).store_ref(src).store_maybe_ref(None)
-        hm = HashMap(256, value_serializer=value_serializer)
-        hm.map = self.libs
-        if self.libs:
+        if libs and self.libs:
+            def value_serializer(dest: Builder, src: Cell):
+                if src is not None:
+                    dest.store_uint(0, 2).store_ref(src).store_maybe_ref(None)
+
+            hm = HashMap(256, value_serializer=value_serializer)
+            hm.map = self.libs
             emulator.set_libraries(hm.serialize())
 
         # todo set prev blocks info
@@ -1029,11 +1028,7 @@ class LiteClient:
         state_proof = Cell.one_from_boc(result['state_proof'])
         return self.unpack_config(blk, config_proof, state_proof)
 
-    async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]]) -> typing.Dict[str, typing.Optional[Cell]]:
-        """
-        :param library_list: list of library hashes in bytes or string hex form
-        :return: dict {library_hash_hex: library Cell or None if library not found}
-        """
+    async def _get_libraries(self, library_list: typing.List[typing.Union[bytes, str]]) -> typing.Dict[str, typing.Optional[Cell]]:
         if len(library_list) > 16:
             raise LiteClientError('maximum libraries num could be requested is 16')
         library_list = [lib.hex() if isinstance(lib, bytes) else lib for lib in library_list]
@@ -1053,6 +1048,17 @@ class LiteClient:
                     raise LiteClientError('library hash mismatch')
 
         return result
+
+    async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]]) -> typing.Dict[str, typing.Optional[Cell]]:
+        """
+        Get libraries from blockchain
+
+        :param library_list: list of library hashes in bytes or string hex form
+        :return: dict {library_hash_hex: library Cell or None if library not found}
+        """
+        libs = [library_list[i:i + 16] for i in range(0, len(library_list), 16)]  # split libs into 16-element chunks
+        result = await asyncio.gather(*[self._get_libraries(lib) for lib in libs])
+        return {k: v for d in result for k, v in d.items()}
 
     async def get_out_msg_queue_sizes(self, wc: int = None, shard: int = None):
         """
