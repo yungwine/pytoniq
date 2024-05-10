@@ -21,6 +21,7 @@ class LiteBalancer:
 
         self._peers = peers
         self._alive_peers: typing.Set[int] = set()
+        self._archival_peers = set()
 
         self._checker: asyncio.Task = None
 
@@ -29,14 +30,25 @@ class LiteBalancer:
         self._total_req_num = {}  # {index: successful_requests_num}
         self._current_req_num = {}  # {index: current_waiting_requests_num}
 
-        self._archival_peers = set()
-
         self._logger = logging.getLogger(self.__class__.__name__)
 
         self.inited = False
         self.max_req_per_peer = 100
         self.max_retries = 1
         self.timeout = timeout
+
+    @property
+    def peers_num(self):
+        return len(self._peers)
+
+    @property
+    def alive_peers_num(self):
+        return len(self._alive_peers)
+
+    @property
+    def archival_peers_num(self):
+        return len(self._archival_peers)
+
 
     @property
     def last_mc_block(self):
@@ -449,6 +461,7 @@ class LiteBalancer:
         self._checker.cancel()
         while not self._checker.done():
             await asyncio.sleep(0)
+        self.inited = False
 
     async def close(self):
         raise BalancerError('Use .close_all()')
