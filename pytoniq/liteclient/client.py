@@ -11,7 +11,7 @@ import requests
 from pytoniq_core import HashMap, Builder
 
 from .sync import choose_key_block, sync
-from .utils import init_mainnet_block, init_testnet_block
+from .utils import init_mainnet_blocks, init_testnet_blocks
 from pytoniq_core.boc import Slice, Cell, begin_cell
 from pytoniq_core.proof.check_proof import check_block_header_proof, check_shard_proof, check_account_proof, check_proof, \
     check_block_signatures, compute_validator_set
@@ -1149,7 +1149,7 @@ class LiteClient:
         init_block['file_hash'] = base64.b64decode(init_block['file_hash']).hex()
         init_block['root_hash'] = base64.b64decode(init_block['root_hash']).hex()
         init_block = BlockIdExt.from_dict(init_block)
-        if not trust_level and init_block != init_mainnet_block and init_block != init_testnet_block:
+        if not trust_level and init_block not in (init_mainnet_blocks + init_testnet_blocks):
             logging.getLogger(cls.__name__).warning(msg='unknown init block found! please, check its hash to trust it')
 
         return cls(
@@ -1157,7 +1157,8 @@ class LiteClient:
             port=ls['port'],
             server_pub_key=ls['id']['key'],
             trust_level=trust_level,
-            init_key_block=init_block
+            init_key_block=init_block,
+            timeout=timeout
         )
 
     @classmethod
