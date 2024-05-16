@@ -482,3 +482,14 @@ class LiteBalancer:
     def from_testnet_config(cls, trust_level: int = 0, timeout: int = 10):
         config = requests.get('https://ton.org/testnet-global.config.json').json()
         return cls.from_config(config, trust_level, timeout)
+
+    async def __aenter__(self):
+        await self.start_up()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close_all()
+        if exc_type:
+            return False
+        return True
+
