@@ -21,6 +21,7 @@ class LiteBalancer:
 
         self._peers = peers
         self._alive_peers: typing.Set[int] = set()
+        self._archival_peers = set()
 
         self._checker: asyncio.Task = None
 
@@ -29,17 +30,33 @@ class LiteBalancer:
         self._total_req_num = {}  # {index: successful_requests_num}
         self._current_req_num = {}  # {index: current_waiting_requests_num}
 
-        self._archival_peers = set()
-
         self._logger = logging.getLogger(self.__class__.__name__)
 
+        self.inited = False
         self.max_req_per_peer = 100
         self.max_retries = 1
         self.timeout = timeout
 
     @property
-    def inited(self):
-        return bool(self._alive_peers)
+    def peers_num(self):
+        return len(self._peers)
+
+    @property
+    def alive_peers_num(self):
+        return len(self._alive_peers)
+
+    @property
+    def archival_peers_num(self):
+        return len(self._archival_peers)
+
+
+    @property
+    def last_mc_block(self):
+        seqno = self._find_consensus_block()
+        for p in self._peers:
+            if p.last_mc_block.seqno == seqno:
+                return p.last_mc_block
+        return None
 
     def set_max_retries(self, retries_num: int) -> None:
         self.max_retries = retries_num
@@ -66,6 +83,7 @@ class LiteBalancer:
         await self._find_archives()
         self._checker = asyncio.create_task(self._check_peers())
         self._delete_unsync_peers()
+        self.inited = True
 
     async def _find_archives(self):
         tasks = []
@@ -326,6 +344,17 @@ class LiteBalancer:
                              , **kwargs) -> list:
         return await self.execute_method('run_get_method', **self._get_args(locals())) 
 
+    async def run_get_method_remote(self, address: typing.Union[Address, str],
+                                    method: typing.Union[int, str], stack: list,
+                                    block: BlockIdExt = None
+                                    , **kwargs) -> list:
+        return await self.execute_method('run_get_method_remote', **self._get_args(locals())) 
+
+    async def run_get_method_local(self, address: typing.Union[Address, str],
+                                   method: typing.Union[int, str], stack: list,
+                                   block: BlockIdExt = None, gas_limit: int = 300000, **kwargs) -> list:
+        return await self.execute_method('run_get_method_local', **self._get_args(locals())) 
+
     async def raw_get_shard_info(self, block: typing.Optional[BlockIdExt] = None,
                                  wc: int = 0, shard: int = -9223372036854775808,
                                  exact: bool = True
@@ -388,6 +417,18 @@ class LiteBalancer:
     async def get_libraries(self, library_list: typing.List[typing.Union[bytes, str]], **kwargs) -> typing.Dict[str, typing.Optional[Cell]]:
         return await self.execute_method('get_libraries', **self._get_args(locals())) 
 
+    async def get_out_msg_queue_sizes(self, wc: int = None, shard: int = None, **kwargs):
+        return await self.execute_method('get_out_msg_queue_sizes', **self._get_args(locals())) 
+
+    async def nonfinal_get_validator_groups(self, wc: int = None, shard: int = None, **kwargs):
+        return await self.execute_method('nonfinal_get_validator_groups', **self._get_args(locals())) 
+
+    async def nonfinal_raw_get_candidate(self, candidate_id: dict, **kwargs):
+        return await self.execute_method('nonfinal_raw_get_candidate', **self._get_args(locals())) 
+
+    async def nonfinal_get_candidate(self, candidate_id: dict, **kwargs):
+        return await self.execute_method('nonfinal_get_candidate', **self._get_args(locals())) 
+
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False, **kwargs):
         return await self.execute_method('get_shard_block_proof', **self._get_args(locals())) 
 
@@ -420,6 +461,7 @@ class LiteBalancer:
         self._checker.cancel()
         while not self._checker.done():
             await asyncio.sleep(0)
+        self.inited = False
 
     async def close(self):
         raise BalancerError('Use .close_all()')
@@ -440,3 +482,14 @@ class LiteBalancer:
     def from_testnet_config(cls, trust_level: int = 0, timeout: int = 10):
         config = requests.get('https://ton.org/testnet-global.config.json').json()
         return cls.from_config(config, trust_level, timeout)
+
+    async def __aenter__(self):
+        await self.start_up()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close_all()
+        if exc_type:
+            return False
+        return True
+
