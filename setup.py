@@ -28,5 +28,6 @@ setuptools.setup(
     ],
     extras_require={
         'tvm': ['pytvm>=0.0.11'],
+        'rldp': ["pyraptorq>=0.1.2"]
     }
 )
