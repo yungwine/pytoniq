@@ -63,6 +63,7 @@ class OverlayManager:
                         await asyncio.wait_for(node.connect(), 1.5)
                         self.logger.debug(f'Connected to peer {node.key_id.hex()}')
                     except asyncio.TimeoutError:
+                        self.overlay.peers.pop(node.key_id, None)
                         continue
                 self.logger.debug(f'Got {len(self.overlay.peers)} first peers')
                 await asyncio.sleep(10)
