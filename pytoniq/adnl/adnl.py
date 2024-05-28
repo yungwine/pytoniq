@@ -11,7 +11,8 @@ from typing import Any
 
 from pytoniq_core.tl.generator import TlGenerator
 
-from pytoniq_core.crypto.ciphers import Server, Client, AdnlChannel, get_random, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key, create_aes_ctr_sipher_from_key_n_data
+from pytoniq_core.crypto.ciphers import Server, Client, AdnlChannel, get_random, aes_ctr_encrypt, aes_ctr_decrypt, \
+    get_shared_key, create_aes_ctr_sipher_from_key_n_data
 
 
 class SocketProtocol(asyncio.DatagramProtocol):
@@ -69,7 +70,8 @@ class Node(Server):
 
     async def send_ping(self) -> None:
         random_id = get_random(8)
-        resp = await self.transport.send_query_message(tl_schema_name='dht.ping', data={'random_id': random_id}, peer=self)
+        resp = await self.transport.send_query_message(tl_schema_name='dht.ping', data={'random_id': random_id},
+                                                       peer=self)
         assert resp[0].get('random_id') == int.from_bytes(random_id, 'big', signed=True)
 
     def start_ping(self):
@@ -106,6 +108,7 @@ class Node(Server):
         if self.connected:
             self.connected = False
             self.pinger.cancel()
+            self.transport.peers.pop(self.key_id, None)
 
 
 class AdnlTransportError(Exception):
@@ -577,6 +580,9 @@ class AdnlTransport:
         :return: response dict for default message
         """
 
+        if peer.key_id in self.peers:
+            raise AdnlTransportError(f"Peer {peer.key_id.hex()} is already connected")
+
         ts = int(time.time())
         channel_client = Client(Client.generate_ed25519_private_key())
         create_channel_message = {
@@ -611,6 +617,7 @@ class AdnlTransport:
         try:
             messages = await self.send_message_outside_channel(data, peer)
         except Exception as e:
+            self.peers.pop(peer.key_id)
             raise e
         finally:
             self.pending_channels.pop(peer.key_id, None)
@@ -638,8 +645,8 @@ class AdnlTransport:
             '@type': 'adnl.message.query',
             'query_id': get_random(32),
             'query': self.schemas.serialize(
-                    self.schemas.get_by_name(tl_schema_name),
-                    data
+                self.schemas.get_by_name(tl_schema_name),
+                data
             )
         }
 

@@ -125,6 +125,8 @@ class DhtClient:
                         await asyncio.wait_for(node.connect(), 1)
                     except asyncio.TimeoutError:
                         continue
+                    except Exception:
+                        continue
                 try:
                     resp = await node.find_value(key=key, k=k)
                 except asyncio.exceptions.TimeoutError:

@@ -55,6 +55,10 @@ class OverlayManager:
                     nodes = await self.dht.get_overlay_nodes(self.overlay.overlay_id, self.overlay)
                 except asyncio.TimeoutError:
                     nodes = []
+                except Exception as e:
+                    self.logger.warning(f'Failed to get first peers: {e}')
+                    await asyncio.sleep(10)
+                    continue
                 for node in nodes:
                     node: OverlayNode
                     if node is None:
