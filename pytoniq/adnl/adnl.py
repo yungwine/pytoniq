@@ -306,7 +306,7 @@ class AdnlTransport:
         elif message['@type'] == 'adnl.message.custom':
             if peer is None:
                 # should not ever happen fixme
-                self.logger.info(f'Received custom message from unknown peer: {message}')
+                self.logger.debug(f'Received custom message from unknown peer: {message}')
                 return
             await self._process_custom_message(message, peer)
         elif message['@type'] == 'adnl.message.part':
