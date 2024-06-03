@@ -63,6 +63,15 @@ class Node(Server):
         self.pinger: asyncio.Task = None
         self.connected = False
         self.logger = logging.getLogger(self.__class__.__name__)
+        self._last_ping_at = time.time()
+        self._lost_pings = 0
+
+    @property
+    def lost_pings(self):
+        return self._lost_pings
+
+    def reset_pings(self):
+        self._last_ping_at = time.time()
         self._lost_pings = 0
 
     async def connect(self):
@@ -81,15 +90,15 @@ class Node(Server):
         while True:
             try:
                 await self.send_ping()
-                self._lost_pings = 0
+                self.reset_pings()
                 self.logger.debug(f'pinged {self.key_id.hex()}')
             except asyncio.TimeoutError:
                 self._lost_pings += 1
-                if self._lost_pings > 3:
+                if self._lost_pings > 3 and self._last_ping_at < time.time() - 15:
                     if self.key_id in self.transport.peers:
                         self.transport.peers.pop(self.key_id)
                     await self.disconnect()
-            await asyncio.sleep(5)
+            await asyncio.sleep(10)
 
     async def get_signed_address_list(self):
         return (await self.transport.send_query_message('dht.getSignedAddressList', {}, self))[0]
@@ -105,6 +114,7 @@ class Node(Server):
         self.seqno += 1
 
     async def disconnect(self):
+        self.logger.debug(f'disconnected {self.key_id.hex()}')
         if self.connected:
             self.connected = False
             self.pinger.cancel()
@@ -300,14 +310,15 @@ class AdnlTransport:
         elif message['@type'] == 'adnl.message.query':
             if peer is None:
                 self.logger.info(f'Received query message from unknown peer: {message}')
-                # not implemented, todo: make connection with new peer
                 return
+            peer.reset_pings()
             await self._process_query_message(message, peer)
         elif message['@type'] == 'adnl.message.custom':
             if peer is None:
                 # should not ever happen fixme
                 self.logger.debug(f'Received custom message from unknown peer: {message}')
                 return
+            peer.reset_pings()
             await self._process_custom_message(message, peer)
         elif message['@type'] == 'adnl.message.part':
             hash_ = message['hash']
