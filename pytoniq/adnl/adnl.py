@@ -357,6 +357,8 @@ class AdnlTransport:
             self._store_new_channel(channel_client, message['key'], peer)
 
     async def _process_create_channel(self, message: dict, peer: Node):
+        if peer.key_id in self.peers:
+            return  # drop packet since peer is already connected
         key = message.get('key')
         if key is None:
             return
