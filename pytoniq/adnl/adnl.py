@@ -114,11 +114,14 @@ class Node(Server):
         self.seqno += 1
 
     async def disconnect(self):
-        self.logger.debug(f'disconnected {self.key_id.hex()}')
         if self.connected:
+            self.logger.debug(f'disconnected {self.key_id.hex()}')
             self.connected = False
             self.pinger.cancel()
             self.transport.peers.pop(self.key_id, None)
+        self.seqno = 1
+        self.confirm_seqno = 0
+        self.reset_pings()
 
 
 class AdnlTransportError(Exception):
@@ -631,6 +634,7 @@ class AdnlTransport:
             messages = await self.send_message_outside_channel(data, peer)
         except Exception as e:
             self.peers.pop(peer.key_id)
+            await peer.disconnect()
             raise e
         finally:
             self.pending_channels.pop(peer.key_id, None)
