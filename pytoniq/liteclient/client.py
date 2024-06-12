@@ -207,7 +207,8 @@ class LiteClient:
         self.inited = False
         self.tasks = {}
         self.reader = None
-        self.writer.close()
+        if self.writer:
+            self.writer.close()
         try:
             await self.writer.wait_closed()
         except ConnectionError:
