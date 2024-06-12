@@ -160,6 +160,7 @@ class LiteBalancer:
                             self._alive_peers.add(i)
                         else:
                             self._alive_peers.discard(i)
+                            continue
                     ping_res = await self._ping_peer(client)
                     if ping_res:
                         self._alive_peers.add(i)
