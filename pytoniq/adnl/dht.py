@@ -15,6 +15,9 @@ from .adnl import Node, AdnlTransport
 from .overlay.overlay import OverlayNode, OverlayTransport
 
 
+_default_tl_schemas = TlGenerator.with_default_schemas().generate()
+
+
 class DhtError(Exception):
     pass
 
@@ -50,8 +53,7 @@ class DhtNode(Node):
 
         # check signature
         if check_signature:
-            schemas = TlGenerator.with_default_schemas().generate()
-            signed_message = schemas.serialize(schema=schemas.get_by_name('dht.node'), data=data)
+            signed_message = _default_tl_schemas.serialize(schema=_default_tl_schemas.get_by_name('dht.node'), data=data)
             if not verify_sign(pub_k, signed_message, signature):
                 raise Exception('invalid node signature!')
 

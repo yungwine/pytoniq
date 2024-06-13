@@ -20,7 +20,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
     def __init__(self, timeout: int = 10):
         # https://github.com/eerimoq/asyncudp/blob/main/asyncudp/__init__.py
         self._error = None
-        self._packets = asyncio.Queue(1000000)
+        self._packets = asyncio.Queue(500000)
         self.timeout = timeout
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -32,7 +32,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
         try:
             self._packets.put_nowait((data, addr))
         except asyncio.QueueFull:
-            self.logger.debug('Queue is full, dropping packet')
+            self.logger.warning('Queue is full, dropping packet')
         super().datagram_received(data, addr)
 
     def error_received(self, exc: Exception) -> None:
@@ -44,6 +44,8 @@ class SocketProtocol(asyncio.DatagramProtocol):
 
 
 class Node(Server):
+
+    PING_INTERVAL = 60
 
     def __init__(
             self,
@@ -98,7 +100,7 @@ class Node(Server):
                     if self.key_id in self.transport.peers:
                         self.transport.peers.pop(self.key_id)
                     await self.disconnect()
-            await asyncio.sleep(10)
+            await asyncio.sleep(self.PING_INTERVAL)
 
     async def get_signed_address_list(self):
         return (await self.transport.send_query_message('dht.getSignedAddressList', {}, self))[0]
@@ -119,6 +121,9 @@ class Node(Server):
             self.connected = False
             self.pinger.cancel()
             self.transport.peers.pop(self.key_id, None)
+        for ch in self.channels:
+            self.transport.channels.pop(ch.server_aes_key_id, None)
+        self.channels = []
         self.seqno = 1
         self.confirm_seqno = 0
         self.reset_pings()
@@ -243,8 +248,7 @@ class AdnlTransport:
         :param resp_packet: bytes of received packet
         :return: decrypted packet and maybe `Node`
         """
-        key_id = resp_packet[:32]
-        if key_id == self.client.get_key_id():
+        if resp_packet.startswith(self.local_id):
             server_public_key = resp_packet[32:64]
             checksum = resp_packet[64:96]
             encrypted = resp_packet[96:]
@@ -259,14 +263,15 @@ class AdnlTransport:
             assert hashlib.sha256(decrypted).digest() == checksum, 'invalid checksum'
             return decrypted, None
         else:
-            for peer_id, channel in self.channels.items():
-                if key_id == channel.server_aes_key_id:
-                    checksum = resp_packet[32:64]
-                    encrypted = resp_packet[64:]
-                    decrypted = channel.decrypt(encrypted, checksum)
-                    assert hashlib.sha256(decrypted).digest() == checksum, 'invalid checksum'
-                    return decrypted, self.peers.get(peer_id)
-            # TODO make new connection
+            key_id = resp_packet[:32]
+            channel = self.channels.get(key_id)
+            if channel:
+                peer_id = channel.peer_id
+                checksum = resp_packet[32:64]
+                encrypted = resp_packet[64:]
+                decrypted = channel.decrypt(encrypted, checksum)
+                assert hashlib.sha256(decrypted).digest() == checksum, 'invalid checksum'
+                return decrypted, self.peers.get(peer_id)
             self.logger.debug(f'unknown key id from node: {key_id.hex()}')
             return b'', None
 
@@ -274,11 +279,14 @@ class AdnlTransport:
         future = self.loop.create_future()
         type_ = message['@type']
         if type_ == 'adnl.message.query':
-            self.tasks[message.get('query_id')[::-1].hex()] = future
+            id_ = message.get('query_id')[::-1].hex()
+            self.tasks[id_] = future
         elif type_ == 'adnl.message.createChannel':
-            self.tasks[message.get('key')] = future
+            id_ = message.get('key')
+            self.tasks[id_] = future
         else:
             return
+        future.id = id_
         return future
 
     def _create_futures(self, data: dict) -> typing.List[asyncio.Future]:
@@ -301,7 +309,7 @@ class AdnlTransport:
 
     async def _process_incoming_message(self, message: dict, peer: Node):
         if peer:
-            self.logger.debug(f'Received message {message} from peer {peer.get_key_id().hex()}')
+            self.logger.debug(f'Received message {message} from peer {peer.key_id.hex()}')
         if message['@type'] == 'adnl.message.answer':
             future = self.tasks.pop(message.get('query_id'), None)
             if future and not future.done():
@@ -344,8 +352,9 @@ class AdnlTransport:
 
     def _store_new_channel(self, channel_client: Client, key: str, peer: Node):
         channel_peer = Server(peer.host, peer.port, bytes.fromhex(key))
-        channel = AdnlChannel(channel_client, channel_peer, self.local_id, peer.get_key_id())
-        self.channels[peer.key_id] = channel
+        channel = AdnlChannel(channel_client, channel_peer, self.local_id, peer.key_id)
+        channel.peer_id = peer.key_id
+        self.channels[channel.server_aes_key_id] = channel
         peer.channels.append(channel)
 
     def _process_confirm_channel(self, message: dict, peer: Node):
@@ -377,7 +386,7 @@ class AdnlTransport:
         }
 
         data = {
-            'from_short': {'id': self.client.get_key_id().hex()},
+            'from_short': {'id': self.local_id.hex()},
             'message': confirm_channel_message,
             'address': {
                 'addrs': [],
@@ -509,6 +518,16 @@ class AdnlTransport:
                 finally:
                     continue
 
+    async def _wait(self, futures: typing.List[asyncio.Future]):
+        try:
+            result = await asyncio.wait_for(self._receive(futures), self.timeout)
+            return result
+        except asyncio.TimeoutError:
+            raise
+        finally:
+            for f in futures:
+                self.tasks.pop(f.id, None)
+
     async def send_message_in_channel(self, data: dict, channel: typing.Optional[AdnlChannel] = None, peer: Node = None) -> list:
         if peer is None:
             raise AdnlTransportError('Must provide peer')
@@ -531,7 +550,7 @@ class AdnlTransport:
         res = channel.encrypt(serialized)
 
         self.transport.sendto(res, addr=peer.addr)
-        result = await asyncio.wait_for(self._receive(futures), self.timeout)
+        result = await self._wait(futures)
 
         return result
 
@@ -567,8 +586,8 @@ class AdnlTransport:
         else:
             raise Exception(f'sending seqno {sending_seqno}, client seqno: {peer.seqno}')
         if futures:
-            result = await asyncio.wait_for(self._receive(futures), self.timeout)
-            return result
+            return await self._wait(futures)
+
 
     async def start(self):
         self.loop = asyncio.get_running_loop()
@@ -643,8 +662,6 @@ class AdnlTransport:
                                                                                f' got {confirm_channel.get("@type")}')
         assert confirm_channel['peer_key'] == channel_client.ed25519_public.encode().hex()
 
-        if peer.key_id not in self.channels:
-            raise AdnlTransportError(f'Channel was not created for peer {peer.key_id.hex()}')
         peer.start_ping()
         peer.connected = True
 

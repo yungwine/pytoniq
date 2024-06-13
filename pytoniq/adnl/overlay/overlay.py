@@ -18,6 +18,8 @@ class OverlayTransportError(AdnlTransportError):
 
 class OverlayNode(Node):
 
+    PING_INTERVAL = 10
+
     def __init__(
             self,
             peer_host: str,  # ipv4 host
@@ -84,6 +86,7 @@ class OverlayTransport(AdnlTransport):
         if self.rules.allow_fec:
             self.raptorq_engine = kwargs.get('raptorq_engine', None)
         self.max_peers = kwargs.get('max_peers', 30)
+        self.signed_myself = self.get_signed_myself()
 
     @staticmethod
     def get_overlay_id(zero_state_file_hash: typing.Union[bytes, str],
@@ -163,17 +166,20 @@ class OverlayTransport(AdnlTransport):
 
     def get_signed_myself(self):
         ts = int(time.time())
+        if self.signed_myself['version'] > ts - 60:
+            return self.signed_myself
 
         overlay_node_data = {'id': {'@type': 'pub.ed25519', 'key': self.client.ed25519_public.encode().hex()},
                              'overlay': self.overlay_id, 'version': ts, 'signature': b''}
 
         overlay_node_to_sign = self.schemas.serialize(self.schemas.get_by_name('overlay.node.toSign'),
-                                                      {'id': {'id': self.client.get_key_id().hex()},
+                                                      {'id': {'id': self.local_id.hex()},
                                                        'overlay': self.overlay_id,
                                                        'version': overlay_node_data['version']})
         signature = self.client.sign(overlay_node_to_sign)
 
         overlay_node = overlay_node_data | {'signature': signature}
+        self.signed_myself = overlay_node
         return overlay_node
 
     async def send_query_message(self, tl_schema_name: str, data: dict, peer: Node) -> typing.List[typing.Union[dict, bytes]]:
@@ -248,12 +254,14 @@ class OverlayTransport(AdnlTransport):
 
     def bcast_gc(self):
         i = iter(self.broadcasts.copy())
-        while len(self.broadcasts) > 1000:
+        while len(self.broadcasts) > 250:
             brcst = next(i)
             del self.broadcasts[brcst]
         for b_hash, b in list(self.fec_broadcasts.items()):
             if b.date < time.time() - 60:
                 del self.fec_broadcasts[b_hash]
+            else:
+                break
 
     def check_source_eligible(self, source: bytes, cert: dict, size: int, is_feq: bool) -> BroadcastCheckResult:
         if size == 0:
