@@ -320,7 +320,7 @@ class AdnlTransport:
             await self._process_create_channel(message, peer)
         elif message['@type'] == 'adnl.message.query':
             if peer is None:
-                self.logger.info(f'Received query message from unknown peer: {message}')
+                self.logger.debug(f'Received query message from unknown peer: {message}')
                 return
             peer.reset_pings()
             await self._process_query_message(message, peer)
@@ -347,7 +347,7 @@ class AdnlTransport:
                 if isinstance(data, dict) and data['@type'] != 'adnl.message.part':  # to avoid infinity recursion, but should never happen
                     await self._process_incoming_message(data, peer)
         else:
-            self.logger.info(f'unexpected message type received: {message}')
+            self.logger.debug(f'unexpected message type received: {message}')
             # raise AdnlTransportError(f'unexpected message type received: {message}')
 
     def _store_new_channel(self, channel_client: Client, key: str, peer: Node):
