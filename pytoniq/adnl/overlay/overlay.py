@@ -86,6 +86,7 @@ class OverlayTransport(AdnlTransport):
         if self.rules.allow_fec:
             self.raptorq_engine = kwargs.get('raptorq_engine', None)
         self.max_peers = kwargs.get('max_peers', 30)
+        self.signed_myself = None
         self.signed_myself = self.get_signed_myself()
 
     @staticmethod
@@ -166,7 +167,7 @@ class OverlayTransport(AdnlTransport):
 
     def get_signed_myself(self):
         ts = int(time.time())
-        if self.signed_myself['version'] > ts - 60:
+        if self.signed_myself is not None and self.signed_myself['version'] > ts - 60:
             return self.signed_myself
 
         overlay_node_data = {'id': {'@type': 'pub.ed25519', 'key': self.client.ed25519_public.encode().hex()},
