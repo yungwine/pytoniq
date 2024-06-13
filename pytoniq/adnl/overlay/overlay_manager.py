@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import random
 
 from pytoniq_core.crypto.ciphers import Server
 
@@ -72,17 +73,23 @@ class OverlayManager:
                 self.logger.debug(f'Got {len(self.overlay.peers)} first peers')
                 await asyncio.sleep(10)
                 continue
-            if len(self.overlay.peers) >= self.max_peers:
+            dif = self.max_peers - len(self.overlay.peers)
+            if dif <= 1:
                 await asyncio.sleep(10)
                 continue
             clients = []
             tasks = []
-            for _, peer in list(self.overlay.peers.items()):
+            peers = list(self.overlay.peers.items())
+            random.shuffle(peers)
+            for _, peer in peers:
+                if dif <= 0:
+                    break
                 self.logger.debug(f'getting nodes from peer {peer.get_key_id().hex()}')
                 if not peer.connected:
                     self.logger.debug(f'peer {peer.get_key_id().hex()} is already not connected')
                     continue
                 tasks.append(self.overlay.get_random_peers(peer))
+                dif -= 3  # lets assume we got at least 3 alive peer from a node
             result = await asyncio.gather(*tasks, return_exceptions=True)
             tasks = []
             for resp in result:
