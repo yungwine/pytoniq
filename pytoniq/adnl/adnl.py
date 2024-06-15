@@ -28,7 +28,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
         super().connection_made(transport)
 
     def datagram_received(self, data: bytes, addr: typing.Tuple[typing.Union[str, Any], int]) -> None:
-        self.logger.debug(f'received {len(data)} bytes')
+        self.logger.debug(f'received {len(data)} bytes from {addr}')
         try:
             self._packets.put_nowait((data, addr))
         except asyncio.QueueFull:
@@ -482,41 +482,51 @@ class AdnlTransport:
         """
         self.set_custom_message_handler(None, handler)
 
+    async def process_packet(self, packet_data: bytes, addr: tuple):
+
+        try:
+            decrypted, peer = self._decrypt_any(packet_data)
+            if not decrypted:
+                return
+            packet, _ = self.schemas.deserialize(decrypted)
+            if not isinstance(packet, dict):  # must be deserialized
+                return
+        except:
+            return
+
+        if peer is None:
+            if 'from' in packet:
+                peer = Node(addr[0], addr[1], base64.b64encode(bytes.fromhex(packet['from']['key'])).decode(), self)
+            if 'from_short' in packet:
+                peer = self.peers.get(bytes.fromhex(packet['from_short']['id']))
+
+        if peer is not None:
+            received_seqno = packet.get('seqno', 0)
+            if received_seqno > peer.confirm_seqno:
+                peer.confirm_seqno = received_seqno
+
+        message = packet.get('message')
+        messages = packet.get('messages', [])
+
+        if message:
+            messages = [message] + messages
+        for message in messages:
+            try:
+                await self._process_incoming_message(message, peer)
+            finally:
+                continue
+
     async def listen(self):
         while True:
             packet_data, addr = await self.protocol.receive()
-
             try:
-                decrypted, peer = self._decrypt_any(packet_data)
-                if not decrypted:
-                    continue
-                packet, _ = self.schemas.deserialize(decrypted)
-                if not isinstance(packet, dict):  # must be deserialized
-                    continue
-            except:
+                await asyncio.wait_for(self.process_packet(packet_data, addr), timeout=1)
+            except asyncio.TimeoutError:
+                self.logger.warning(f'packet processing timeout: len({packet_data}) from {addr}')
                 continue
-
-            if peer is None:
-                if 'from' in packet:
-                    peer = Node(addr[0], addr[1], base64.b64encode(bytes.fromhex(packet['from']['key'])).decode(), self)
-                if 'from_short' in packet:
-                    peer = self.peers.get(bytes.fromhex(packet['from_short']['id']))
-
-            if peer is not None:
-                received_seqno = packet.get('seqno', 0)
-                if received_seqno > peer.confirm_seqno:
-                    peer.confirm_seqno = received_seqno
-
-            message = packet.get('message')
-            messages = packet.get('messages', [])
-
-            if message:
-                messages = [message] + messages
-            for message in messages:
-                try:
-                    await self._process_incoming_message(message, peer)
-                finally:
-                    continue
+            except Exception as e:
+                self.logger.warning(f'packet processing error: {e}')
+                continue
 
     async def _wait(self, futures: typing.List[asyncio.Future]):
         try:
