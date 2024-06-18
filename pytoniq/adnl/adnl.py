@@ -28,7 +28,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
         super().connection_made(transport)
 
     def datagram_received(self, data: bytes, addr: typing.Tuple[typing.Union[str, Any], int]) -> None:
-        self.logger.debug(f'received {len(data)} bytes from {addr}')
+        self.logger.debug(f'received {len(data)} bytes from {addr}; queue {self._packets.qsize()}')
         try:
             self._packets.put_nowait((data, addr))
         except asyncio.QueueFull:
@@ -36,7 +36,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
         super().datagram_received(data, addr)
 
     def error_received(self, exc: Exception) -> None:
-        raise exc
+        self.logger.warning(f'error received: {exc}')
         super().error_received(exc)
 
     async def receive(self):
