@@ -118,22 +118,33 @@ class LiteClient:
     def decrypt(self, data: bytes) -> bytes:
         return aes_ctr_decrypt(self.dec_sipher, data)
 
+    async def _drain(self):
+        try:
+            await self.writer.drain()
+        except ConnectionError:
+            await self.close()
+            raise
+
     async def send(self, data: bytes, qid: typing.Union[str, int, None]) -> asyncio.Future:
         future = self.loop.create_future()
         self.writer.write(data)
-        await self.writer.drain()
+        await self._drain()
         self.tasks[qid] = future
         return future
 
     async def send_and_encrypt(self, data: bytes, qid: str) -> asyncio.Future:
         future = self.loop.create_future()
         self.writer.write(self.encrypt(data))
-        await self.writer.drain()
+        await self._drain()
         self.tasks[qid] = future
         return future
 
     async def receive(self, data_len: int) -> bytes:
-        data = await self.reader.readexactly(data_len)
+        try:
+            data = await self.reader.readexactly(data_len)
+        except ConnectionError:
+            await self.close()
+            raise
         return data
 
     async def receive_and_decrypt(self, data_len: int) -> bytes:
@@ -188,14 +199,20 @@ class LiteClient:
 
     async def close(self) -> None:
         for i in [self.pinger, self.updater, self.listener]:
+            if i.done() and not i.cancelled():
+                i.exception()
             i.cancel()
             while not i.done():
-                await asyncio.sleep(0.001)
+                await asyncio.sleep(0)
         self.inited = False
         self.tasks = {}
         self.reader = None
-        self.writer.close()
-        await self.writer.wait_closed()
+        if self.writer:
+            self.writer.close()
+        try:
+            await self.writer.wait_closed()
+        except ConnectionError:
+            pass
         self.writer = None
         self.logger.info(msg='client has been closed')
 

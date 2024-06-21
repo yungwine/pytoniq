@@ -8,7 +8,7 @@ import requests
 from pytoniq_core import BlockIdExt, Block, Address, Account, ShardAccount, SimpleAccount, ShardDescr, Transaction, Cell
 from pytoniq_core.tlb.block import BinTree
 
-from .client import LiteClient, LiteClientError
+from .client import LiteClient, LiteClientError, LiteServerError
 
 
 class BalancerError(LiteClientError):
@@ -49,12 +49,11 @@ class LiteBalancer:
     def archival_peers_num(self):
         return len(self._archival_peers)
 
-
     @property
     def last_mc_block(self):
         seqno = self._find_consensus_block()
         for p in self._peers:
-            if p.last_mc_block.seqno == seqno:
+            if p.last_mc_block is not None and p.last_mc_block.seqno == seqno:
                 return p.last_mc_block
         return None
 
@@ -161,6 +160,7 @@ class LiteBalancer:
                             self._alive_peers.add(i)
                         else:
                             self._alive_peers.discard(i)
+                            continue
                     ping_res = await self._ping_peer(client)
                     if ping_res:
                         self._alive_peers.add(i)
@@ -222,6 +222,8 @@ class LiteBalancer:
     def _find_consensus_block(self):
         self._update_mc_seqnos()
         seqnos = sorted(self._mc_blocks.values(), reverse=True)
+        if not seqnos:
+            return 0
         return seqnos[len(seqnos) * 2 // 3]  # block that knows at least 2/3 liteservers
 
     def _delete_unsync_peers(self):
@@ -233,8 +235,10 @@ class LiteBalancer:
     async def execute_method(self, method_name_: str, *args, **kwargs) -> typing.Union[dict, typing.Any]:
         only_archive = kwargs.pop('only_archive', False)
         choose_random = kwargs.pop('choose_random', False)
-
-        for _ in range(self.max_retries):
+        retry = False
+        i = 0
+        while i < self.max_retries or retry:
+            retry = False
 
             if not len(self._alive_peers):
                 raise BalancerError(f'have no alive peers')
@@ -266,6 +270,16 @@ class LiteBalancer:
             except asyncio.TimeoutError:
                 self._update_average_request_time(ind, self.timeout * 10**6)  # provide milliseconds
                 self._alive_peers.discard(ind)
+                continue
+            except LiteServerError as e:
+                if e.message == 'timeout':
+                    self._update_average_request_time(ind, self.timeout * 10 ** 6)
+                    self._alive_peers.discard(ind)
+                    continue
+                raise e
+            except ConnectionError:  # if socket is dead we just try another peer and somewhere in future will reconnect to this one
+                self._alive_peers.discard(ind)
+                retry = True
                 continue
             finally:
                 self._current_req_num[ind] -= 1
