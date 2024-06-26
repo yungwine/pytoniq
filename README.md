@@ -46,6 +46,10 @@ async def main():
     await client.reconnect()  # can reconnect to an exising object if had any errors
 
     await client.close()
+    
+    """ or use it with context manager: """
+    async with LiteClient.from_mainnet_config(ls_i=0, trust_level=2, timeout=15) as client:
+        await client.get_masterchain_info()
 
 ```
 
@@ -93,6 +97,11 @@ await client.start_up()
 result = await client.run_get_method(address='EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', method='seqno', stack=[])
 
 await client.close_all()
+
+""" or use it with context manager: """
+
+async with LiteBalancer.from_mainnet_config(trust_level=1) as client:
+    result = await client.run_get_method(address='EQBvW8Z5huBkMJYdnfAEM5JqTNkuWX3diqYENkWsIL0XggGG', method='seqno', stack=[])
 
 ```
 

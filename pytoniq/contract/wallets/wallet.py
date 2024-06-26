@@ -305,7 +305,7 @@ class WalletV3R1(WalletV3):
         :param wallet_id: subwallet_id
         :return: mnemonics and Wallet instance of provided version
         """
-        return super().create(provider=provider, wc=wc, wallet_id=wallet_id, version='v3r1')
+        return await super().create(provider=provider, wc=wc, wallet_id=wallet_id, version='v3r1')
 
 
 class WalletV3R2(WalletV3):
@@ -333,7 +333,7 @@ class WalletV3R2(WalletV3):
         :param wallet_id: subwallet_id
         :return: mnemonics and Wallet instance of provided version
         """
-        return super().create(provider=provider, wc=wc, wallet_id=wallet_id, version='v3r2')
+        return await super().create(provider=provider, wc=wc, wallet_id=wallet_id, version='v3r2')
 
 
 class WalletV4R2(WalletV4):
@@ -361,4 +361,4 @@ class WalletV4R2(WalletV4):
         :param wallet_id: subwallet_id
         :return: mnemonics and Wallet instance of provided version
         """
-        return super().create(provider=provider, wc=wc, wallet_id=wallet_id, version='v4r2')
+        return await super().create(provider=provider, wc=wc, wallet_id=wallet_id, version='v4r2')
