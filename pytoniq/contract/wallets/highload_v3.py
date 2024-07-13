@@ -25,7 +25,7 @@ class HighloadWalletV3(Wallet):
     @classmethod
     async def from_data(cls, provider: LiteClientLike, public_key: bytes, timeout: typing.Optional[int] = None, wc: int = 0,
                         wallet_id: typing.Optional[int] = None, **kwargs) -> "HighloadWalletV3":
-        data = cls.create_data_cell(public_key, wallet_id, timeout, wc)
+        data = cls.create_data_cell(public_key, wallet_id, wc, timeout)
         return await super().from_code_and_data(provider, wc, HIGHLOAD_WALLET_V3_CODE, data, **kwargs)
 
     @staticmethod
@@ -39,7 +39,7 @@ class HighloadWalletV3(Wallet):
     @classmethod
     async def from_private_key(cls, provider: LiteClientLike, private_key: bytes, wc: int = 0, wallet_id: typing.Optional[int] = None, timeout: typing.Optional[int] = None):
         public_key = private_key_to_public_key(private_key)
-        return await cls.from_data(provider=provider, wc=wc, public_key=public_key, wallet_id=wallet_id, timeout=timeout, private_key=private_key)
+        return await cls.from_data(provider=provider, public_key=public_key, timeout=timeout, wc=wc, wallet_id=wallet_id, private_key=private_key)
 
     @classmethod
     async def from_mnemonic(cls, provider: LiteClientLike, mnemonics: typing.Union[list, str], wc: int = 0, wallet_id: typing.Optional[int] = None, timeout: typing.Optional[int] = None):
@@ -47,7 +47,7 @@ class HighloadWalletV3(Wallet):
             mnemonics = mnemonics.split()
         assert mnemonic_is_valid(mnemonics), 'mnemonics are invalid!'
         _, private_key = mnemonic_to_private_key(mnemonics)
-        return await cls.from_private_key(provider, private_key, wc, wallet_id, timeout)
+        return await cls.from_private_key(provider=provider, private_key=private_key, wc=wc, wallet_id=wallet_id, timeout=timeout)
 
     @classmethod
     async def create(cls, provider: LiteClientLike, wc: int = 0, wallet_id: typing.Optional[int] = None, timeout: typing.Optional[int] = None):
@@ -59,7 +59,7 @@ class HighloadWalletV3(Wallet):
         :return: mnemonics and Wallet instance of provided version
         """
         mnemo = mnemonic_new(24)
-        return mnemo, await cls.from_mnemonic(provider, mnemo, wc, wallet_id, timeout)
+        return mnemo, await cls.from_mnemonic(provider=provider, mnemonics=mnemo, wc=wc, wallet_id=wallet_id, timeout=timeout)
 
     @staticmethod
     def raw_create_transfer_msg(private_key: bytes, wallet_id: int, sendmode: int, created_at: int, timeout: int, message_to_send: WalletMessage, query_id: HighloadQueryId = 0) -> Cell:
