@@ -22,7 +22,7 @@ setuptools.setup(
     python_requires='>=3.9',
     py_modules=["pytoniq"],
     install_requires=[
-        "pytoniq-core>=0.1.35",
+        "pytoniq-core @ git+https://github.com/r-pine/pytoniq-core.git",
         "requests>=2.31.0",
         "setuptools>=65.5.1",
     ],
