@@ -22,7 +22,7 @@ class HighloadWalletV3(Wallet):
 
     @staticmethod
     def create_data_cell(public_key: bytes, wallet_id: typing.Optional[int] = None, wc: typing.Optional[int] = 0,
-                         old_queries: typing.Optional[dict] = None, queries: typing.Optional[dict] = None, timeout: typing.Optional[int] = None) -> Cell:
+                         old_queries: typing.Optional[dict] = None, queries: typing.Optional[dict] = None, timeout: typing.Optional[int] = 128) -> Cell:
         if wallet_id is None:
             wallet_id = 698983191 + wc
         return HighloadWalletV3Data(public_key=public_key, wallet_id=wallet_id, old_queries=old_queries, queries=queries, last_cleaned=0, timeout=timeout).serialize()
