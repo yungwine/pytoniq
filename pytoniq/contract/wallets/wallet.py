@@ -346,7 +346,7 @@ class WalletV4R2(WalletV4):
 
     @classmethod
     async def from_mnemonic(cls, provider: LiteClientLike, mnemonics: typing.Union[list, str], wc: int = 0,
-                            wallet_id: typing.Optional[int] = None):
+                            wallet_id: typing.Optional[int] = None, *args, **kwargs):
         if isinstance(mnemonics, str):
             mnemonics = mnemonics.split()
         assert mnemonic_is_valid(mnemonics), 'mnemonics are invalid!'
@@ -354,7 +354,8 @@ class WalletV4R2(WalletV4):
         return await super().from_private_key(provider, private_key, wc, wallet_id, 'v4r2')
 
     @classmethod
-    async def create(cls, provider: LiteClientLike, wc: int = 0, wallet_id: typing.Optional[int] = None):
+    async def create(cls, provider: LiteClientLike, wc: int = 0,
+                     wallet_id: typing.Optional[int] = None, *args, **kwargs):
         """
         :param provider: provider
         :param wc: wallet workchain
