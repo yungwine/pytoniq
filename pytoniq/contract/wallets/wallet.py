@@ -3,12 +3,13 @@ import typing
 
 from ...liteclient import LiteClientLike
 from ..contract import Contract, ContractError
+from ..utils import generate_wallet_id
 from pytoniq_core.crypto.keys import private_key_to_public_key, mnemonic_to_private_key, mnemonic_is_valid, mnemonic_new
 from pytoniq_core.crypto.signature import sign_message
 from pytoniq_core.boc import Cell, Builder
 from pytoniq_core.boc.address import Address
 from pytoniq_core.tlb.account import StateInit
-from pytoniq_core.tlb.custom.wallet import WalletV3Data, WalletV4Data, WalletMessage
+from pytoniq_core.tlb.custom.wallet import WalletV3Data, WalletV4Data, WalletV5Data, WalletMessage
 
 WALLET_V3_R2_CODE = Cell.one_from_boc(
     b'\xb5\xee\x9crA\x01\x01\x01\x00q\x00\x00\xde\xff\x00 \xdd \x82\x01L\x97\xba!\x82\x013\x9c\xba\xb1\x9fq\xb0\xedD\xd0\xd3\x1f\xd3\x1f1\xd7\x0b\xff\xe3\x04\xe0\xa4\xf2`\x83\x08\xd7\x18 \xd3\x1f\xd3\x1f\xd3\x1f\xf8#\x13\xbb\xf2c\xedD\xd0\xd3\x1f\xd3\x1f\xd3\xff\xd1Q2\xba\xf2\xa1QD\xba\xf2\xa2\x04\xf9\x01T\x10U\xf9\x10\xf2\xa3\xf8\x00\x93 \xd7J\x96\xd3\x07\xd4\x02\xfb\x00\xe8\xd1\x01\xa4\xc8\xcb\x1f\xcb\x1f\xcb\xff\xc9\xedT\x10\xbdm\xad')
@@ -16,7 +17,9 @@ WALLET_V3_R1_CODE = Cell.one_from_boc(
     b'\xb5\xee\x9crA\x01\x01\x01\x00b\x00\x00\xc0\xff\x00 \xdd \x82\x01L\x97\xba\x970\xedD\xd0\xd7\x0b\x1f\xe0\xa4\xf2`\x83\x08\xd7\x18 \xd3\x1f\xd3\x1f\xd3\x1f\xf8#\x13\xbb\xf2c\xedD\xd0\xd3\x1f\xd3\x1f\xd3\xff\xd1Q2\xba\xf2\xa1QD\xba\xf2\xa2\x04\xf9\x01T\x10U\xf9\x10\xf2\xa3\xf8\x00\x93 \xd7J\x96\xd3\x07\xd4\x02\xfb\x00\xe8\xd1\x01\xa4\xc8\xcb\x1f\xcb\x1f\xcb\xff\xc9\xedT?\xben\xe0')
 WALLET_V4_R2_CODE = Cell.one_from_boc(
     b'\xb5\xee\x9crA\x02\x14\x01\x00\x02\xd4\x00\x01\x14\xff\x00\xf4\xa4\x13\xf4\xbc\xf2\xc8\x0b\x01\x02\x01 \x02\x03\x02\x01H\x04\x05\x04\xf8\xf2\x83\x08\xd7\x18 \xd3\x1f\xd3\x1f\xd3\x1f\x02\xf8#\xbb\xf2d\xedD\xd0\xd3\x1f\xd3\x1f\xd3\xff\xf4\x04\xd1QC\xba\xf2\xa1QQ\xba\xf2\xa2\x05\xf9\x01T\x10d\xf9\x10\xf2\xa3\xf8\x00$\xa4\xc8\xcb\x1fR@\xcb\x1fR0\xcb\xffR\x10\xf4\x00\xc9\xedT\xf8\x0f\x01\xd3\x07!\xc0\x00\x9flQ\x93 \xd7J\x96\xd3\x07\xd4\x02\xfb\x00\xe80\xe0!\xc0\x01\xe3\x00!\xc0\x02\xe3\x00\x01\xc0\x03\x910\xe3\r\x03\xa4\xc8\xcb\x1f\x12\xcb\x1f\xcb\xff\x10\x11\x12\x13\x02\xe6\xd0\x01\xd0\xd3\x03!q\xb0\x92_\x04\xe0"\xd7I\xc1 \x92_\x04\xe0\x02\xd3\x1f!\x82\x10plug\xbd"\x82\x10dstr\xbd\xb0\x92_\x05\xe0\x03\xfa@0 \xfaD\x01\xc8\xca\x07\xcb\xff\xc9\xd0\xedD\xd0\x81\x01@\xd7!\xf4\x040\\\x81\x01\x08\xf4\no\xa11\xb3\x92_\x07\xe0\x05\xd3?\xc8%\x82\x10plug\xba\x9280\xe3\r\x03\x82\x10dstr\xba\x92_\x06\xe3\r\x06\x07\x02\x01 \x08\t\x00x\x01\xfa\x00\xf4\x040\xf8\'o"0P\n\xa1!\xbe\xf2\xe0P\x82\x10plug\x83\x1e\xb1p\x80\x18P\x04\xcb\x05&\xcf\x16X\xfa\x02\x19\xf4\x00\xcbi\x17\xcb\x1fR`\xcb? \xc9\x80@\xfb\x00\x06\x00\x8aP\x04\x81\x01\x08\xf4Y0\xedD\xd0\x81\x01@\xd7 \xc8\x01\xcf\x16\xf4\x00\xc9\xedT\x01r\xb0\x8e#\x82\x10dstr\x83\x1e\xb1p\x80\x18P\x05\xcb\x05P\x03\xcf\x16#\xfa\x02\x13\xcbj\xcb\x1f\xcb?\xc9\x80@\xfb\x00\x92_\x03\xe2\x02\x01 \n\x0b\x00Y\xbd$+oj&\x84\x08\n\x06\xb9\x0f\xa0!\x84p\xd4\x08\x08G\xa4\x93})\x91\x0c\xe6\x90>\x9f\xf9\x83x\x12\x80\x1bx\x10\x14\x89\x87\x15\x9f1\x84\x02\x01X\x0c\r\x00\x11\xb8\xc9~\xd4M\rp\xb1\xf8\x00=\xb2\x9d\xfbQ4 @P5\xc8}\x01\x0c\x00\xb22\x81\xf2\xff\xf2t\x00`@B=\x02\x9b\xe8L`\x02\x01 \x0e\x0f\x00\x19\xad\xcev\xa2h@ k\x90\xeb\x85\xff\xc0\x00\x19\xaf\x1d\xf6\xa2h@\x10k\x90\xeb\x85\x8f\xc0\x00n\xd2\x07\xfa\x00\xd4\xd4"\xf9\x00\x05\xc8\xca\x07\x15\xcb\xff\xc9\xd0wt\x80\x18\xc8\xcb\x05\xcb\x02"\xcf\x16P\x05\xfa\x02\x14\xcbk\x12\xcc\xcc\xc9s\xfb\x00\xc8@\x14\x81\x01\x08\xf4Q\xf2\xa7\x02\x00p\x81\x01\x08\xd7\x18\xfa\x00\xd3?\xc8T G\x81\x01\x08\xf4Q\xf2\xa7\x82\x10notept\x80\x18\xc8\xcb\x05\xcb\x02P\x06\xcf\x16P\x04\xfa\x02\x14\xcbj\x12\xcb\x1f\xcb?\xc9s\xfb\x00\x02\x00l\x81\x01\x08\xd7\x18\xfa\x00\xd3?0R$\x81\x01\x08\xf4Y\xf2\xa7\x82\x10dstrpt\x80\x18\xc8\xcb\x05\xcb\x02P\x05\xcf\x16P\x03\xfa\x02\x13\xcbj\xcb\x1f\x12\xcb?\xc9s\xfb\x00\x00\n\xf4\x00\xc9\xedTib%\xe5')
-
+WALLET_V5_R1_CODE = Cell.one_from_boc(
+    b'\xb5\xee\x9crA\x02\x14\x01\x00\x02\x81\x00\x01\x14\xff\x00\xf4\xa4\x13\xf4\xbc\xf2\xc8\x0b\x01\x02\x01 \x02\r\x02\x01H\x03\x04\x02\xdc\xd0 \xd7I\xc1 \x91[\x8fc \xd7\x0b\x1f \x82\x10extn\xbd!\x82\x10sint\xbd\xb0\x92_\x03\xe0\x82\x10extn\xba\x8e\xb4\x80 \xd7!\x01\xd0t\xd7!\xfa@0\xfaD\xf8(\xfaD0X\xbd\x91[\xe0\xedD\xd0\x81\x01A\xd7!\xf4\x05\x83\x07\xf4\x0eo\xa11\x910\xe1\x80@\xd7!p\x7f\xdb<\xe01 \xd7I\x81\x02\x80\xb9\x910\xe0p\xe2\x10\x0f\x02\x01 \x05\x0c\x02\x01 \x06\t\x02\x01n\x07\x08\x00\x19\xad\xcev\xa2h@ \xeb\x90\xeb\x85\xff\xc0\x00\x19\xaf\x1d\xf6\xa2h@\x10\xeb\x90\xeb\x85\x8f\xc0\x02\x01H\n\x0b\x00\x17\xb3%\xfbQ4\x1cu\xc8u\xc2\xc7\xe0\x00\x11\xb2b\xfbQ45\xc2\x80 \x00\x19\xbe_\x0fj&\x84\x08\n\x0e\xb9\x0f\xa0,\x01\x02\xf2\x0e\x01\x1e \xd7\x0b\x1f\x82\x10sign\xba\xf2\xe0\x8a\x7f\x0f\x01\xe6\x8e\xf0\xed\xa2\xed\xfb!\x83\x08\xd7"\x02\x83\x08\xd7# \x80 \xd7!\xd3\x1f\xd3\x1f\xd3\x1f\xedD\xd0\xd2\x00\xd3\x1f \xd3\x1f\xd3\xff\xd7\n\x00\n\xf9\x01@\xcc\xf9\x10\x9a(\x94_\n\xdb1\xe1\xf2\xc0\x87\xdf\x02\xb3P\x07\xb0\xf2\xd0\x84Q%\xba\xf2\xe0\x85P6\xba\xf2\xe0\x86\xf8#\xbb\xf2\xd0\x88"\x92\xf8\x00\xde\x01\xa4\x7f\xc8\xca\x00\xcb\x1f\x01\xcf\x16\xc9\xedT \x92\xf8\x0f\xdep\xdb<\xd8\x10\x03\xf6\xed\xa2\xed\xfb\x02\xf4\x04!n\x92l!\x8eL\x02!\xd790p\x94!\xc7\x00\xb3\x8e-\x01\xd7( v\x1eCl \xd7I\xc0\x08\xf2\xe0\x93 \xd7J\xc0\x02\xf2\xe0\x93 \xd7\x1d\x06\xc7\x12\xc2\x00R0\xb0\xf2\xd0\x89\xd7L\xd790\x01\xa4\xe8l\x12\x84\x07\xbb\xf2\xe0\x93\xd7J\xc0\x00\xf2\xe0\x93\xedU\xe2\xd2\x00\x01\xc0\x00\x91[\xe0\xeb\xd7,\x08\x14 \x91p\x96\x01\xd7,\x08\x1c\x12\xe2R\x10\xb1\xe3\x0f \xd7J\x11\x12\x13\x00\x96\x01\xfa@\x01\xfaD\xf8(\xfaD0X\xba\xf2\xe0\x91\xedD\xd0\x81\x01A\xd7\x18\xf4\x05\x04\x9d\x7f\xc8\xca\x00@\x04\x83\x07\xf4S\xf2\xe0\x8b\x8e\x14\x03\x83\x07\xf4[\xf2\xe0\x8c"\xd7\n\x00!n\x01\xb3\xb0\xf2\xd0\x90\xe2\xc8P\x03\xcf\x16\x12\xf4\x00\xc9\xedT\x00r0\xd7,\x08$\x8e-!\xf2\xe0\x92\xd2\x00\xedD\xd0\xd2\x00Q\x13\xba\xf2\xd0\x8fTP0\x911\x9c\x01\x81\x01@\xd7!\xd7\n\x00\xf2\xe0\x8e\xe2\xc8\xca\x00X\xcf\x16\xc9\xedT\x93\xf2\xc0\x8d\xe2\x00\x10\x93[\xdb1\xe1\xd7L\xd0\xb4\xd6\xc3^'
+)
 
 class WalletError(ContractError):
     pass
@@ -72,6 +75,10 @@ class BaseWallet(Wallet):
         elif version == 'v3r1':
             return await WalletV3R1.from_data(provider=provider, wc=wc, public_key=public_key, wallet_id=wallet_id,
                                               private_key=private_key)
+        elif version == 'v5r1':
+            return await WalletV5R1.from_data(provider=provider, wc=wc, public_key=public_key, wallet_id=wallet_id,
+                                              private_key=private_key)
+
         else:
             raise Exception(f'Wallet version {version} does not supported')
 
@@ -362,3 +369,167 @@ class WalletV4R2(WalletV4):
         :return: mnemonics and Wallet instance of provided version
         """
         return await super().create(provider=provider, wc=wc, wallet_id=wallet_id, version='v4r2')
+
+
+class WalletV5(BaseWallet):
+
+    @classmethod
+    async def from_code_and_data(cls, provider: LiteClientLike, code: Cell, public_key: bytes, wc: int = 0,
+                                 is_signature_allowed: bool = True, global_id: int = -239, wallet_version: int = 0,
+                                 wallet_id: typing.Optional[int] = None, extensions_dict: typing.Optional[Cell] = None,
+                                 **kwargs):
+        data = cls.create_data_cell(public_key, wallet_id, wc, is_signature_allowed, global_id, wallet_version,
+                                    extensions_dict)
+        return await super().from_code_and_data(provider, wc, code, data, **kwargs)
+
+    @staticmethod
+    def create_data_cell(public_key: bytes, wallet_id: typing.Optional[int] = None, wc: int = 0,
+                         is_signature_allowed: bool = True, global_id: int = -239, wallet_version: int = 0,
+                         extensions_dict: typing.Optional[Cell] = None) -> Cell:
+        if wallet_id is None:
+            wallet_id = generate_wallet_id(0, wc, wallet_version, global_id)
+        return WalletV5Data(is_signature_allowed=is_signature_allowed, seqno=0, wallet_id=wallet_id,
+                            public_key=public_key, extensions_dict=extensions_dict).serialize()
+
+    async def raw_transfer(self, msgs: typing.List[WalletMessage], seqno_from_get_meth: bool = True):
+        """
+        :param msgs: list of WalletMessages. to create one call create_wallet_internal_message meth
+        :param seqno_from_get_meth: if True LiteClient will request seqno get method and use it, otherwise seqno from contract data will be taken
+        """
+        assert len(msgs) <= 255, 'for wallet v5 maximum messages amount is 255'
+        if 'private_key' not in self.__dict__:
+            raise WalletError('must specify wallet private key!')
+
+        if seqno_from_get_meth:
+            seqno = await self.get_seqno()
+        else:
+            seqno = self.seqno
+        transfer_msg = self.raw_create_transfer_msg(private_key=self.private_key, seqno=seqno, wallet_id=self.wallet_id, messages=msgs)
+
+        return await self.send_external(body=transfer_msg)
+
+    @staticmethod
+    def raw_create_transfer_msg(private_key: bytes, seqno: int, wallet_id: int, messages: typing.List[WalletMessage],
+                                valid_until: typing.Optional[int] = None, op_code: int = 0x7369676e) -> Cell:
+        signing_message = Builder().store_uint(op_code, 32)
+        signing_message.store_uint(wallet_id, 32)
+        if seqno == 0:
+            signing_message.store_bits('1' * 32)  # bin(2**32 - 1)
+        else:
+            if valid_until is not None:
+                signing_message.store_uint(valid_until, 32)
+            else:
+                signing_message.store_uint(int(time.time()) + 60, 32)
+        signing_message.store_uint(seqno, 32)
+        signing_message.store_cell(WalletV5.pack_actions(messages))
+        signing_message = signing_message.end_cell()
+        signature = sign_message(signing_message.hash, private_key)
+        return Builder() \
+            .store_cell(signing_message) \
+            .store_bytes(signature) \
+            .end_cell()
+
+    @staticmethod
+    def pack_actions(messages: typing.List[WalletMessage]) -> Cell:
+        """
+        Packs a list of wallet messages into a single Cell.
+
+        :param messages: A list of WalletMessage instances to pack.
+        :return: A Cell containing the packed messages.
+        """
+        list_cell = Cell.empty()
+
+        for msg in messages:
+            msg = Builder() \
+                .store_uint(0x0ec3c86d, 32) \
+                .store_uint(msg.send_mode, 8) \
+                .store_ref(msg.message.serialize()) \
+                .end_cell()
+            list_cell = Builder() \
+                .store_ref(list_cell) \
+                .store_cell(msg) \
+                .end_cell()
+
+        return Builder() \
+            .store_uint(1, 1) \
+            .store_ref(list_cell) \
+            .store_uint(0, 1) \
+            .end_cell()
+
+    @property
+    def is_signature_allowed(self) -> int:
+        """
+        :return: seqno taken from contract data
+        """
+        return WalletV5Data.deserialize(self.state.data.begin_parse()).is_signature_allowed
+
+    @property
+    def seqno(self) -> int:
+        """
+        :return: seqno taken from contract data
+        """
+        return WalletV5Data.deserialize(self.state.data.begin_parse()).seqno
+
+    @property
+    def wallet_id(self) -> int:
+        """
+        :return: wallet_id taken from contract data
+        """
+        return WalletV5Data.deserialize(self.state.data.begin_parse()).wallet_id
+
+    @property
+    def public_key(self) -> bytes:
+        """
+        :return: public_key taken from contract data
+        """
+        return WalletV5Data.deserialize(self.state.data.begin_parse()).public_key
+
+    @property
+    def extensions_dict(self) -> Cell:
+        return WalletV4Data.deserialize(self.state.data.begin_parse()).extensions_dict
+
+
+class WalletV5R1(WalletV5):
+
+    @classmethod
+    async def from_data(cls, provider: LiteClientLike, public_key: bytes, wc: int = 0,
+                        wallet_id: typing.Optional[int] = None, **kwargs):
+        return await super().from_code_and_data(provider=provider, code=WALLET_V5_R1_CODE, public_key=public_key, wc=wc,
+                                                wallet_id=wallet_id, **kwargs)
+
+    @classmethod
+    async def from_mnemonic(cls, provider: LiteClientLike, mnemonics: typing.Union[list, str], wc: int = 0,
+                            wallet_id: typing.Optional[int] = None):
+        if isinstance(mnemonics, str):
+            mnemonics = mnemonics.split()
+        assert mnemonic_is_valid(mnemonics), 'mnemonics are invalid!'
+        _, private_key = mnemonic_to_private_key(mnemonics)
+        return await super().from_private_key(provider, private_key, wc, wallet_id, 'v5r1')
+
+    @classmethod
+    async def create(cls, provider: LiteClientLike, wc: int = 0, wallet_id: typing.Optional[int] = None):
+        """
+        :param provider: provider
+        :param wc: wallet workchain
+        :param wallet_id: subwallet_id
+        :return: mnemonics and Wallet instance of provided version
+        """
+        return await super().create(provider=provider, wc=wc, wallet_id=wallet_id, version='v5r1')
+
+    def create_signed_internal_msg(self, messages: typing.List[WalletMessage], seqno: int, **kwargs) -> Cell:
+        return self.raw_create_transfer_msg(
+            private_key=self.private_key,
+            op_code=0x7369676e,
+            messages=messages,
+            seqno=seqno,
+            **kwargs,
+        )
+
+    def create_signed_external_msg(self, messages: typing.List[WalletMessage], seqno: int, **kwargs) -> Cell:
+        return self.raw_create_transfer_msg(
+            private_key=self.private_key,
+            op_code=0x7369676e,
+            messages=messages,
+            seqno=seqno,
+            **kwargs,
+        )
