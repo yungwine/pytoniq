@@ -12,7 +12,10 @@ from pytoniq_core.crypto.signature import verify_sign
 from pytoniq_core.tl import TlGenerator
 
 from .adnl import Node, AdnlTransport
-from .overlay import OverlayNode, OverlayTransport
+from .overlay.overlay import OverlayNode, OverlayTransport
+
+
+_default_tl_schemas = TlGenerator.with_default_schemas().generate()
 
 
 class DhtError(Exception):
@@ -50,8 +53,7 @@ class DhtNode(Node):
 
         # check signature
         if check_signature:
-            schemas = TlGenerator.with_default_schemas().generate()
-            signed_message = schemas.serialize(schema=schemas.get_by_name('dht.node'), data=data)
+            signed_message = _default_tl_schemas.serialize(schema=_default_tl_schemas.get_by_name('dht.node'), data=data)
             if not verify_sign(pub_k, signed_message, signature):
                 raise Exception('invalid node signature!')
 
@@ -124,6 +126,8 @@ class DhtClient:
                     try:
                         await asyncio.wait_for(node.connect(), 1)
                     except asyncio.TimeoutError:
+                        continue
+                    except Exception:
                         continue
                 try:
                     resp = await node.find_value(key=key, k=k)
@@ -256,8 +260,9 @@ class DhtClient:
         port = node_addr['port']
         pub_k = base64.b64encode(bytes.fromhex(resp['value']['key']['id']['key'])).decode()
 
-        node = OverlayNode(peer_host=host, peer_port=port, peer_pub_key=pub_k, transport=overlay_transport)
-        return node
+        onode = OverlayNode(peer_host=host, peer_port=port, peer_pub_key=pub_k, transport=overlay_transport)
+        onode.add_params(node['signature'], node['version'])
+        return onode
 
     @classmethod
     def from_config(cls, config: dict, adnl_transport: AdnlTransport):
