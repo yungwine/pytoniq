@@ -142,7 +142,7 @@ class LiteClient:
     async def receive(self, data_len: int) -> bytes:
         try:
             data = await self.reader.readexactly(data_len)
-        except ConnectionError:
+        except asyncio.IncompleteReadError:
             await self.close()
             raise
         return data
