@@ -28,5 +28,8 @@ setuptools.setup(
     ],
     extras_require={
         'tvm': ['pytvm>=0.0.11'],
-    }
+    },
+    package_data={
+        "": ["*py.typed"],
+    },
 )
