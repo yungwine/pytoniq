@@ -68,7 +68,7 @@ class LiteClient:
         """########### init ###########"""
         self.tasks = {}
         self.inited = False
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logging.getLogger(__name__)
         self.timeout = timeout
 
         """########### sync ###########"""
@@ -1167,7 +1167,7 @@ class LiteClient:
         init_block['root_hash'] = base64.b64decode(init_block['root_hash']).hex()
         init_block = BlockIdExt.from_dict(init_block)
         if not trust_level and init_block not in (init_mainnet_blocks + init_testnet_blocks):
-            logging.getLogger(cls.__name__).warning(msg='unknown init block found! please, check its hash to trust it')
+            logging.getLogger(__name__).warning(msg='unknown init block found! please, check its hash to trust it')
 
         return cls(
             host=socket.inet_ntoa(struct.pack('>i', ls['ip'])),

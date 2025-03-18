@@ -6,7 +6,7 @@ import typing
 from pytoniq_core.tl.block import BlockIdExt
 
 
-logger = logging.getLogger('sync')
+logger = logging.getLogger(__name__)
 
 
 async def sync(client, to_block: BlockIdExt, init_block: BlockIdExt):
