@@ -624,7 +624,7 @@ class LiteClient:
                     dest.store_uint(0, 2).store_ref(src).store_maybe_ref(None)
 
             hm = HashMap(256, value_serializer=value_serializer)
-            hm.map = self.libs
+            hm.map = {int(k, 16): v for k, v in self.libs.items() if v is not None}
             emulator.set_libraries(hm.serialize())
 
         # todo set prev blocks info
@@ -1094,7 +1094,7 @@ class LiteClient:
         """
         libs = [library_list[i:i + 16] for i in range(0, len(library_list), 16)]  # split libs into 16-element chunks
         result = await asyncio.gather(*[self._get_libraries(lib) for lib in libs])
-        return {int(k, 16): v for d in result for k, v in d.items()}
+        return {k: v for d in result for k, v in d.items()}
 
     async def get_out_msg_queue_sizes(self, wc: int = None, shard: int = None):
         """
