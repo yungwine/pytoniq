@@ -184,7 +184,10 @@ class LiteClient:
             raise LiteClientError('The client is already connected')
         self.loop = asyncio.get_running_loop()
         handshake = self.handshake()
-        self.reader, self.writer = await asyncio.wait_for(asyncio.open_connection(self.server.host, self.server.port), self.timeout)
+        self.reader, self.writer = await asyncio.wait_for(
+            asyncio.open_connection(self.server.host, self.server.port),
+            self.timeout
+        )
         future = await asyncio.wait_for(self.send(handshake, None), self.timeout)
         self.listener = asyncio.create_task(self.listen())
         await self.update_last_blocks()
@@ -193,28 +196,44 @@ class LiteClient:
         await future
         self.inited = True
 
-    async def reconnect(self) -> None:
-        await self.close()
-        await self.connect()
+    async def reconnect(self, max_retries: int = 5, retry_delay: int = 2) -> None:
+        """
+        :param max_retries: maximum number of reconnection attempts
+        :param retry_delay: delay between reconnection attempts in seconds
+        :return:
+        """
+        for attempt in range(max_retries):
+            await self.close()
+            try:
+                self.logger.info(f"Reconnection attempt {attempt + 1}/{max_retries}")
+                await self.connect()
+                self.logger.info("Successfully reconnected")
+                return  # exit if connection succeeds
+            except Exception as e:
+                self.logger.error(f"Reconnection attempt {attempt + 1}/{max_retries} failed: {str(e)}")
+                await asyncio.sleep(retry_delay)
+        raise LiteClientError('Failed to reconnect after several attempts')
 
     async def close(self) -> None:
-        for i in [self.pinger, self.updater, self.listener]:
-            if i.done() and not i.cancelled():
-                i.exception()
-            i.cancel()
-            while not i.done():
-                await asyncio.sleep(0)
+        for task in [self.pinger, self.updater, self.listener]:
+            if task is not None and not task.done():
+                task.cancel()
+            if task is not None:
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
         self.inited = False
         self.tasks = {}
         self.reader = None
         if self.writer:
             self.writer.close()
-        try:
-            await self.writer.wait_closed()
-        except ConnectionError:
-            pass
+            try:
+                await self.writer.wait_closed()
+            except ConnectionError:
+                pass
         self.writer = None
-        self.logger.info(msg='client has been closed')
+        self.logger.info('client has been closed')
 
     def handshake(self) -> bytes:
         rand = get_random(160)
