@@ -1,3 +1,4 @@
+import logging
 import typing
 
 from .wallet import Wallet, WalletError
@@ -33,6 +34,7 @@ class HighloadWallet(Wallet):
     @classmethod
     async def from_private_key(cls, provider: LiteClientLike, private_key: bytes, wc: int = 0,
                                wallet_id: typing.Optional[int] = None):
+        logging.getLogger('pytoniq').warning('HighloadWallet (v2) is deprecated, use HighloadWalletV3 instead')
         public_key = private_key_to_public_key(private_key)
         return await cls.from_data(provider=provider, wc=wc, public_key=public_key, wallet_id=wallet_id,
                                    private_key=private_key)
