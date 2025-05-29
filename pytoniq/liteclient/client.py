@@ -561,7 +561,7 @@ class LiteClient:
     @staticmethod
     def _find_libs(cell: Cell, libs: list):
         if cell.type_ == 2:
-            libs.append(cell.begin_parse().preload_bytes(32))
+            libs.append(cell.begin_parse().skip_bits(8).preload_bytes(32))
             return True
         res = False
         for ref in cell.refs:  # trick to avoid copying, don't repeat this at home
@@ -619,7 +619,7 @@ class LiteClient:
             self.libs |= await self.get_libraries(libs)
 
         if libs and self.libs:
-            def value_serializer(dest: Builder, src: Cell):
+            def value_serializer(src: Cell, dest: Builder):
                 if src is not None:
                     dest.store_uint(0, 2).store_ref(src).store_maybe_ref(None)
 
@@ -1094,7 +1094,7 @@ class LiteClient:
         """
         libs = [library_list[i:i + 16] for i in range(0, len(library_list), 16)]  # split libs into 16-element chunks
         result = await asyncio.gather(*[self._get_libraries(lib) for lib in libs])
-        return {k: v for d in result for k, v in d.items()}
+        return {int(k, 16): v for d in result for k, v in d.items()}
 
     async def get_out_msg_queue_sizes(self, wc: int = None, shard: int = None):
         """
