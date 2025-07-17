@@ -21,7 +21,7 @@ class SocketProtocol(asyncio.DatagramProtocol):
         self._error = None
         self._packets = asyncio.Queue(10000)
         self.timeout = timeout
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
 
     def connection_made(self, transport: transports.DatagramTransport) -> None:
         super().connection_made(transport)
@@ -58,7 +58,7 @@ class Node(Server):
         self.transport = transport
         self.pinger: asyncio.Task = None
         self.connected = False
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self._lost_pings = 0
 
     async def connect(self):
@@ -125,7 +125,7 @@ class AdnlTransport:
         self.loop: asyncio.AbstractEventLoop = None
         self.timeout = kwargs.get('timeout', 10)
         self.listener: asyncio.Task = None
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
         self.tasks: typing.Dict[str, asyncio.Future] = {}
         self.query_handlers: typing.Dict[str, typing.Callable] = {}
         self.custom_handlers: typing.Dict[str, typing.Callable] = {}

@@ -30,7 +30,7 @@ class LiteBalancer:
         self._total_req_num = {}  # {index: successful_requests_num}
         self._current_req_num = {}  # {index: current_waiting_requests_num}
 
-        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger = logging.getLogger(__name__)
 
         self.inited = False
         self.max_req_per_peer = 100
