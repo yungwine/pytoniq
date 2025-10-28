@@ -4,8 +4,8 @@ import logging
 import asyncio
 import socket
 import struct
-import time
 import typing
+from contextlib import suppress
 
 import requests
 from pytoniq_core import HashMap, Builder
@@ -141,43 +141,53 @@ class LiteClient:
 
     async def receive(self, data_len: int) -> bytes:
         try:
-            data = await self.reader.readexactly(data_len)
-        except ConnectionError:
-            await self.close()
-            raise
-        return data
+            return await self.reader.readexactly(data_len)
+        except (ConnectionError, asyncio.IncompleteReadError):
+            try:
+                await self.close()
+            finally:
+                raise
 
     async def receive_and_decrypt(self, data_len: int) -> bytes:
         data = self.decrypt(await self.receive(data_len))
         return data
 
     async def listen(self) -> None:
-        while True:
-            while not self.tasks:
-                await asyncio.sleep(self.delta)
+        try:
+            while True:
+                while not self.tasks:
+                    await asyncio.sleep(self.delta)
 
-            data_len_encrypted = await self.receive(4)
-            data_len = int(self.decrypt(data_len_encrypted)[::-1].hex(), 16)
+                data_len_encrypted = await self.receive(4)
+                data_len = int(self.decrypt(data_len_encrypted)[::-1].hex(), 16)
 
-            self.logger.debug(msg=f'received {data_len // 8} bytes of data')
+                self.logger.debug(msg=f'received {data_len // 8} bytes of data')
 
-            data_encrypted = await self.receive(data_len)
-            data_decrypted = self.decrypt(data_encrypted)
-            # check hashsum
-            assert hashlib.sha256(data_decrypted[:-32]).digest() == data_decrypted[-32:], 'incorrect checksum'
-            result = self.deserialize_adnl_query(data_decrypted[:-32])
+                data_encrypted = await self.receive(data_len)
+                data_decrypted = self.decrypt(data_encrypted)
+                # check hashsum
+                assert hashlib.sha256(data_decrypted[:-32]).digest() == data_decrypted[-32:], 'incorrect checksum'
+                result = self.deserialize_adnl_query(data_decrypted[:-32])
 
-            if not result:
-                # for handshake
-                result = {}
+                if not result:
+                    # for handshake
+                    result = {}
 
-            qid = result.get('query_id', result.get('random_id'))  # return query_id for ordinary requests, random_id for ping-pong requests, None for handshake
+                qid = result.get('query_id', result.get('random_id'))  # return query_id for ordinary requests, random_id for ping-pong requests, None for handshake
 
-            request: asyncio.Future = self.tasks.pop(qid)
+                request: asyncio.Future = self.tasks.pop(qid)
 
-            result = result.get('answer', {})
-            if not request.done():
-                request.set_result(result)
+                result = result.get('answer', {})
+                if not request.done():
+                    request.set_result(result)
+        except asyncio.CancelledError:
+            pass # normal shutdown path
+        except (ConnectionResetError, asyncio.IncompleteReadError, ConnectionAbortedError, TimeoutError):
+            return # expected network tear-downs
+        except Exception as e:
+            self.logger.exception(f'listener crashed: {e}')
+            with suppress(Exception):
+                await self.close()
 
     async def connect(self) -> None:
         if self.inited:
@@ -215,23 +225,31 @@ class LiteClient:
         raise LiteClientError('Failed to reconnect after several attempts')
 
     async def close(self) -> None:
-        for task in [self.pinger, self.updater, self.listener]:
-            if task is not None and not task.done():
+        current = asyncio.current_task()
+        for task_name in ("pinger", "updater", "listener"):
+            task = getattr(self, task_name, None)
+            if task is None:
+                continue
+            # cancel
+            if not task.done():
                 task.cancel()
-            if task is not None:
+            # avoid awaiting self
+            if task is not current:
                 try:
                     await task
                 except (asyncio.CancelledError, Exception):
                     pass
+            setattr(self, task_name, None)
+
         self.inited = False
-        self.tasks = {}
+        self.tasks.clear()
         self.reader = None
         if self.writer:
-            self.writer.close()
             try:
-                await self.writer.wait_closed()
-            except ConnectionError:
-                pass
+                self.writer.close()
+            finally:
+                with suppress(Exception):
+                    await self.writer.wait_closed()
         self.writer = None
         self.logger.info('client has been closed')
 
