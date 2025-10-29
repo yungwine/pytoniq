@@ -104,6 +104,7 @@ class BaseWallet(Wallet):
     @staticmethod
     def raw_create_transfer_msg(private_key: bytes, seqno: int, wallet_id: int, messages: typing.List[WalletMessage],
                                 valid_until: typing.Optional[int] = None) -> Cell:
+        assert len(messages) <= 4, 'for common wallet maximum messages amount is 4'
         signing_message = Builder().store_uint(wallet_id, 32)
         if seqno == 0:
             signing_message.store_bits('1' * 32)  # bin(2**32 - 1)
@@ -127,7 +128,6 @@ class BaseWallet(Wallet):
         :param msgs: list of WalletMessages. to create one call create_wallet_internal_message meth
         :param seqno_from_get_meth: if True LiteClient will request seqno get method and use it, otherwise seqno from contract data will be taken
         """
-        assert len(msgs) <= 4, 'for common wallet maximum messages amount is 4'
         if 'private_key' not in self.__dict__:
             raise WalletError('must specify wallet private key!')
 
@@ -152,6 +152,7 @@ class BaseWallet(Wallet):
         if 'private_key' not in self.__dict__:
             raise WalletError('must specify wallet private key!')
         body = self.raw_create_transfer_msg(private_key=self.private_key, seqno=0, wallet_id=self.wallet_id, messages=[])
+
         return await self.send_external(state_init=self.state_init, body=body)
 
     async def get_seqno(self) -> int:
