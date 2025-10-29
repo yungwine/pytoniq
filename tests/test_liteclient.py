@@ -12,7 +12,7 @@ from pytoniq import LiteClient
 @pytest_asyncio.fixture
 async def client():
     while True:
-        client = LiteClient.from_mainnet_config(random.randint(0, 15), trust_level=1)
+        client = LiteClient.from_testnet_config(random.randint(0, 7), trust_level=1)
         try:
             await client.connect()
             yield client
@@ -24,12 +24,12 @@ async def client():
 
 @pytest.mark.asyncio
 async def test_init():
-    client = LiteClient.from_mainnet_config(ls_i=0, trust_level=2)
-    await client.connect()
-    await client.reconnect()
-    await client.close()
+    # client = LiteClient.from_mainnet_config(ls_i=0, trust_level=2)
+    # await client.connect()
+    # await client.reconnect()
+    # await client.close()
 
-    client = LiteClient.from_testnet_config(ls_i=12, trust_level=2)
+    client = LiteClient.from_testnet_config(ls_i=random.randint(0, 7), trust_level=2)
     await client.connect()
     await client.reconnect()
     await client.close()

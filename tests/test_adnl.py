@@ -14,7 +14,7 @@ async def test_connection():
     await adnl.start()
 
     # take peer from public config
-    peer = Node('172.104.59.125', 14432, "/YDNd+IwRUgL0mq21oC0L3RxrS8gTu0nciSPUrhqR78=", adnl)
+    peer = Node('144.76.36.181', 21533, "LFnKVKTO+GYsOBrTH2xaVAGsOGEgSNGo0TRdDZmBeL4=", adnl)
     await adnl.connect_to_peer(peer)
 
     # ask peer for something
