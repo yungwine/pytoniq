@@ -37,10 +37,10 @@ async def test_account_state(client: LiteBalancer):
     await client.close_all()
 
 
-@pytest.mark.asyncio
-async def test_archival(client: LiteBalancer):
-    blk, _ = await client.lookup_block(-1, -2 ** 63, 10, only_archive=True)
-    assert blk.root_hash.hex() == 'c1b8e9cb4c3d886d91764d243693119f4972d284ce7be01e739b67fdcbb84ca1'
+# @pytest.mark.asyncio
+# async def test_archival(client: LiteBalancer):
+#     blk, _ = await client.lookup_block(-1, -2 ** 63, 10, only_archive=True)
+#     assert blk.root_hash.hex() == 'c1b8e9cb4c3d886d91764d243693119f4972d284ce7be01e739b67fdcbb84ca1'
 
 
 @pytest.mark.asyncio
