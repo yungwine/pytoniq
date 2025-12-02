@@ -123,7 +123,7 @@ class BaseWallet(Wallet):
             .store_cell(signing_message) \
             .end_cell()
 
-    async def raw_transfer(self, msgs: typing.List[WalletMessage], seqno_from_get_meth: bool = True):
+    async def raw_transfer(self, msgs: typing.List[WalletMessage], seqno_from_get_meth: bool = True, valid_until: typing.Optional[int] = None):
         """
         :param msgs: list of WalletMessages. to create one call create_wallet_internal_message meth
         :param seqno_from_get_meth: if True LiteClient will request seqno get method and use it, otherwise seqno from contract data will be taken
@@ -135,16 +135,16 @@ class BaseWallet(Wallet):
             seqno = await self.get_seqno()
         else:
             seqno = self.seqno
-        transfer_msg = self.raw_create_transfer_msg(private_key=self.private_key, seqno=seqno, wallet_id=self.wallet_id, messages=msgs)
+        transfer_msg = self.raw_create_transfer_msg(private_key=self.private_key, seqno=seqno, wallet_id=self.wallet_id, messages=msgs, valid_until=valid_until)
 
         return await self.send_external(body=transfer_msg)
 
     async def transfer(self, destination: typing.Union[Address, str], amount: int, body: Cell = Cell.empty(),
-                       state_init: StateInit = None):
+                       state_init: StateInit = None, valid_until: typing.Optional[int] = None):
         if isinstance(destination, str):
             destination = Address(destination)
         wallet_message = self.create_wallet_internal_message(destination=destination, value=amount, body=body, state_init=state_init)
-        return await self.raw_transfer(msgs=[wallet_message])
+        return await self.raw_transfer(msgs=[wallet_message], valid_until=valid_until)
 
     async def send_init_external(self):
         if not self.state_init:
