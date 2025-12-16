@@ -1159,6 +1159,25 @@ class LiteClient:
         resp = await self.nonfinal_raw_get_candidate(candidate_id)
         return Block.deserialize(Slice.one_from_boc(resp['data']))
 
+    async def nonfinal_raw_get_pending_shard_blocks(self, wc: int = None, shard: int = None):
+        data = {}
+        mode = 0b0
+        assert not (wc is None) ^ (shard is None), 'workchain and shard must be both set or both not set'
+        if wc is not None or shard is not None:
+            data['wc'] = wc
+            data['shard'] = shard
+            mode += 0b01
+        return await self.liteserver_request('nonfinal.getPendingShardBlocks', data | {'mode': mode})
+
+    async def nonfinal_get_pending_shard_blocks(self, wc: int = None, shard: int = None):
+        resp = await self.nonfinal_raw_get_pending_shard_blocks(wc, shard)
+        signed_blocks = [BlockIdExt.from_dict(block) for block in resp.get('signed_blocks', [])]
+        candidates = [BlockIdExt.from_dict(block) for block in resp.get('candidates', [])]
+        return {
+            'signed_blocks': signed_blocks,
+            'candidates': candidates
+        }
+
     async def get_shard_block_proof(self, blk: BlockIdExt, prove_mc: bool = False):
         data = {'id': blk.to_dict()}
 
