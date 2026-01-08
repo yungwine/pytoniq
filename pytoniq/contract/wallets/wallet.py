@@ -131,10 +131,13 @@ class BaseWallet(Wallet):
         if 'private_key' not in self.__dict__:
             raise WalletError('must specify wallet private key!')
 
+        seqno = self.seqno
         if seqno_from_get_meth:
-            seqno = await self.get_seqno()
-        else:
-            seqno = self.seqno
+            try:
+                # TODO: consider checking `self.is_active`
+                seqno = await self.get_seqno()
+            except:
+                pass  # TODO: warn about get-method failure
         transfer_msg = self.raw_create_transfer_msg(private_key=self.private_key, seqno=seqno, wallet_id=self.wallet_id, messages=msgs)
 
         return await self.send_external(body=transfer_msg)
