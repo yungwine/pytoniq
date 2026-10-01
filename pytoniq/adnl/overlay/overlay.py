@@ -244,9 +244,9 @@ class OverlayTransport(AdnlTransport):
     async def get_random_peers(self, peer: OverlayNode):
         known_peers = self.get_neighbours(5)
         peers = [self.get_signed_myself()]
-        for peer in known_peers:
-            if peer.to_tl():
-                peers.append(peer.to_tl())
+        for known_peer in known_peers:
+            if known_peer.to_tl():
+                peers.append(known_peer.to_tl())
         return await self.send_query_message(tl_schema_name='overlay.getRandomPeers', data={'peers': {'nodes': peers}},
                                              peer=peer)
 
