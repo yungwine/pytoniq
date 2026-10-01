@@ -135,6 +135,8 @@ class AdnlTransportError(Exception):
 
 class AdnlTransport:
 
+    MESSAGE_PARTS_TTL = 10  # seconds to wait for the rest of a message split into adnl.message.part
+
     def __init__(self,
                  private_key: bytes = None,
                  tl_schemas_path: str = None,
@@ -153,7 +155,7 @@ class AdnlTransport:
         self.tasks: typing.Dict[str, asyncio.Future] = {}
         self.query_handlers: typing.Dict[str, typing.Callable] = {}
         self.custom_handlers: typing.Dict[str, typing.Callable] = {}
-        self._message_parts: typing.Dict[str, dict] = {}  # {'hash': {'remained': int, 'parts': list}}
+        self._message_parts: typing.Dict[str, dict] = {}  # {'hash': {'remained': int, 'parts': {offset: part}, 'created_at': float}}
         self.inited = False
         self.pending_channels = {}
 
@@ -333,17 +335,23 @@ class AdnlTransport:
             await self._process_custom_message(message, peer)
         elif message['@type'] == 'adnl.message.part':
             hash_ = message['hash']
+            self._drop_stale_message_parts()
             if hash_ not in self._message_parts:
-                self._message_parts[hash_] = {'remained': message['total_size'], 'parts': []}
+                self._message_parts[hash_] = {'remained': message['total_size'], 'parts': {}, 'created_at': time.monotonic()}
+            entry = self._message_parts[hash_]
+            if message['offset'] in entry['parts']:  # duplicate part
+                return
 
-            self._message_parts[hash_]['remained'] -= len(message['data'])
-            self._message_parts[hash_]['parts'].append(message)
+            entry['remained'] -= len(message['data'])
+            entry['parts'][message['offset']] = message
 
-            if self._message_parts[hash_]['remained'] == 0:
+            if entry['remained'] == 0:
                 try:
                     data = self._collect_adnl_message_parts(hash_)
                 except:
                     return
+                finally:
+                    self._message_parts.pop(hash_, None)
                 if isinstance(data, dict) and data['@type'] != 'adnl.message.part':  # to avoid infinity recursion, but should never happen
                     await self._process_incoming_message(data, peer)
         else:
@@ -409,10 +417,18 @@ class AdnlTransport:
         await self.send_message_outside_channel(data, peer)
         peer.start_ping()
 
+    def _drop_stale_message_parts(self):
+        deadline = time.monotonic() - self.MESSAGE_PARTS_TTL
+        while self._message_parts:
+            hash_, entry = next(iter(self._message_parts.items()))  # dict keeps creation order
+            if entry['created_at'] >= deadline:
+                break
+            del self._message_parts[hash_]
+
     def _collect_adnl_message_parts(self, hash_: str, deserialize_after: bool = True):
         if hash_ not in self._message_parts:
             raise AdnlTransportError(f'Provided hash not in message parts')
-        parts = sorted(self._message_parts[hash_]['parts'], key=lambda i: i['offset'])
+        parts = sorted(self._message_parts[hash_]['parts'].values(), key=lambda i: i['offset'])
         full_data = b''
         for part in parts:
             full_data += part['data']
