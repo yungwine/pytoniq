@@ -28,6 +28,12 @@ class DhtValueNotFoundError(DhtError):
 
 class DhtNode(Node):
 
+    def __eq__(self, other):
+        return isinstance(other, DhtNode) and self.key_id == other.key_id
+
+    def __hash__(self):
+        return hash(self.key_id)
+
     async def find_value(self, key: bytes, k: int = 6):
         data = {'key': key.hex(), 'k': k}
         return await self.transport.send_query_message('dht.findValue', data, self)
@@ -252,7 +258,7 @@ class DhtClient:
 
         try:
             resp = await self.find_value(key=self.get_dht_key_id_tl(id_=adnl_addr), timeout=5)
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, DhtValueNotFoundError):
             return None
 
         node_addr = resp['value']['value']['addrs'][0]
