@@ -364,6 +364,7 @@ class AdnlTransport:
                 future.set_result(message)
             if peer.key_id not in self.pending_channels:
                 return
+            peer = self.peers.get(peer.key_id, peer)  # process_packet() may pass a new Node built from `from`
 
             channel_client = self.pending_channels.get(peer.key_id)  # add channel to the object from connect_to_peer
             self._store_new_channel(channel_client, message['key'], peer)
@@ -661,6 +662,10 @@ class AdnlTransport:
 
         try:
             messages = await self.send_message_outside_channel(data, peer)
+        except asyncio.CancelledError:  # e.g. wait_for() timeout, otherwise next connects raise "already connected"
+            if self.peers.get(peer.key_id) is peer:
+                self.peers.pop(peer.key_id)
+            raise
         except Exception as e:
             self.peers.pop(peer.key_id)
             await peer.disconnect()
