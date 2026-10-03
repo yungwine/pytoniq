@@ -22,8 +22,9 @@ def process_get_random_peers_request(_, overlay_client: OverlayTransport):
 def process_get_capabilities_request(_):
     return {
         '@type': 'tonNode.capabilities',
-        'version': 2,
-        'capabilities': 2,
+        'version_major': 2,
+        'version_minor': 2,
+        'flags': 0,
     }
 
 

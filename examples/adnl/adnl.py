@@ -20,8 +20,9 @@ async def main():
     def process_get_capabilities_request(_):
         return {
             '@type': 'tonNode.capabilities',
-            'version': 2,
-            'capabilities': 1,
+            'version_major': 2,
+            'version_minor': 1,
+            'flags': 0,
         }
 
     adnl.set_query_handler(type_='overlay.getCapabilities',

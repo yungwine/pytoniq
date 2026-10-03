@@ -4,11 +4,13 @@ import base64
 
 import pytest
 from pytoniq_core.crypto.ciphers import Client
+from pytoniq_core.tl import TlGenerator
 
 from pytoniq.adnl import dht as dht_module
 from pytoniq.adnl.adnl import AdnlTransport, AdnlTransportError, Node
 from pytoniq.adnl.dht import DhtClient, DhtNode, DhtValueNotFoundError
 from pytoniq.adnl.overlay.overlay import OverlayNode, OverlayTransport
+from pytoniq.adnl.overlay.overlay_manager import process_get_capabilities_request
 
 
 def new_key() -> Client:
@@ -119,3 +121,11 @@ async def test_get_random_peers_asks_the_given_peer():
     await overlay.get_random_peers(target)
 
     assert asked == [target]
+
+
+def test_capabilities_answer_matches_schema():
+    schemas = TlGenerator.with_default_schemas().generate()
+
+    raw = schemas.serialize('tonNode.capabilities', process_get_capabilities_request(None))
+
+    assert schemas.deserialize(raw)[0] == process_get_capabilities_request(None)
