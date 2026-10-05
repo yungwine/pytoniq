@@ -136,6 +136,7 @@ class AdnlTransportError(Exception):
 class AdnlTransport:
 
     MESSAGE_PARTS_TTL = 10  # seconds to wait for the rest of a message split into adnl.message.part
+    node_class = Node  # class of peers that connect to us
 
     def __init__(self,
                  private_key: bytes = None,
@@ -513,7 +514,7 @@ class AdnlTransport:
 
         if peer is None:
             if 'from' in packet:
-                peer = Node(addr[0], addr[1], base64.b64encode(bytes.fromhex(packet['from']['key'])).decode(), self)
+                peer = self.node_class(addr[0], addr[1], base64.b64encode(bytes.fromhex(packet['from']['key'])).decode(), self)
             if 'from_short' in packet:
                 peer = self.peers.get(bytes.fromhex(packet['from_short']['id']))
 

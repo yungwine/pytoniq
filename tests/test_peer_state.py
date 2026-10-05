@@ -10,7 +10,7 @@ from pytoniq.adnl import dht as dht_module
 from pytoniq.adnl.adnl import AdnlTransport, AdnlTransportError, Node
 from pytoniq.adnl.dht import DhtClient, DhtNode, DhtValueNotFoundError
 from pytoniq.adnl.overlay.overlay import OverlayNode, OverlayTransport
-from pytoniq.adnl.overlay.overlay_manager import process_get_capabilities_request
+from pytoniq.adnl.overlay.overlay_manager import process_get_capabilities_request, process_get_random_peers_request
 
 
 def new_key() -> Client:
@@ -121,6 +121,29 @@ async def test_get_random_peers_asks_the_given_peer():
     await overlay.get_random_peers(target)
 
     assert asked == [target]
+
+
+@pytest.mark.asyncio
+async def test_peers_that_connect_to_overlay_are_overlay_nodes():
+    server = OverlayTransport(overlay_id='00' * 32, local_address=('127.0.0.1', None), timeout=2)
+    client = OverlayTransport(overlay_id='00' * 32, local_address=('127.0.0.1', None), timeout=2)
+    server.set_query_handler('overlay.getRandomPeers', lambda q: process_get_random_peers_request(q, server))
+    await server.start()
+    await client.start()
+    try:
+        await client.connect_to_peer(OverlayNode('127.0.0.1', server.local_address[1], b64_pub(server.client), client))
+
+        inbound = server.peers[client.local_id]
+        assert isinstance(inbound, OverlayNode)
+        # not signed, so it is left out of getRandomPeers queries and answers
+        assert process_get_random_peers_request(None, server)['nodes'] == [server.get_signed_myself()]
+    finally:
+        for transport in (server, client):
+            for peer in list(transport.peers.values()):
+                await peer.disconnect()
+        await asyncio.sleep(0.1)  # close() can hang if it cancels the listener in the middle of a packet
+        for transport in (server, client):
+            await transport.close()
 
 
 def test_capabilities_answer_matches_schema():

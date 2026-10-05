@@ -57,6 +57,7 @@ class OverlayNode(Node):
 class OverlayTransport(AdnlTransport):
     max_simple_broadcast_size = 768
     max_fec_broadcast_size = 16 << 20
+    node_class = OverlayNode
 
     def __init__(self,
                  private_key: bytes = None,
