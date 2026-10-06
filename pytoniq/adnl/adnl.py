@@ -700,9 +700,10 @@ class AdnlTransport:
         return messages[1]
 
     async def close(self):
-        self.listener.cancel()
-        while not self.listener.cancelled():
-            await asyncio.sleep(0)
+        # on python < 3.12 wait_for() in listen() can swallow cancel() if the packet was already processed
+        while not self.listener.done():
+            self.listener.cancel()
+            await asyncio.wait([self.listener], timeout=0.1)
         self.transport.abort()
         self.inited = False
 

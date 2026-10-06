@@ -1,6 +1,7 @@
 """Offline tests for peer bookkeeping in ADNL, DHT and overlay transports (no network needed)."""
 import asyncio
 import base64
+from types import SimpleNamespace
 
 import pytest
 from pytoniq_core.crypto.ciphers import Client
@@ -141,9 +142,27 @@ async def test_peers_that_connect_to_overlay_are_overlay_nodes():
         for transport in (server, client):
             for peer in list(transport.peers.values()):
                 await peer.disconnect()
-        await asyncio.sleep(0.1)  # close() can hang if it cancels the listener in the middle of a packet
-        for transport in (server, client):
             await transport.close()
+
+
+@pytest.mark.asyncio
+async def test_close_when_listener_ignores_cancel():
+    transport = AdnlTransport(timeout=1)
+    transport.transport = SimpleNamespace(abort=lambda: None)
+
+    async def listen():
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            pass  # what wait_for() does on python < 3.12 if the packet was already processed
+        await asyncio.sleep(10)
+
+    transport.listener = asyncio.create_task(listen())
+    await asyncio.sleep(0)
+
+    await asyncio.wait_for(transport.close(), 1)
+
+    assert transport.listener.cancelled()
 
 
 def test_capabilities_answer_matches_schema():
