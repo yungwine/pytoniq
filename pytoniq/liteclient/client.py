@@ -15,6 +15,11 @@ from .utils import init_mainnet_blocks, init_testnet_blocks
 from pytoniq_core.boc import Slice, Cell, begin_cell
 from pytoniq_core.proof.check_proof import check_block_header_proof, check_shard_proof, check_account_proof, check_proof, \
     check_block_signatures, compute_validator_set
+try:  # pytoniq-core with Simplex consensus signature sets
+    from pytoniq_core.proof.check_proof import check_block_signature_set
+except ImportError:  # older pytoniq-core: catchain signature sets only
+    def check_block_signature_set(nodes, signature_set, blk):
+        check_block_signatures(nodes=nodes, signatures=signature_set['signatures'], blk=blk)
 from pytoniq_core.boc.address import Address
 
 from pytoniq_core.crypto.ciphers import Server, Client, get_random, create_aes_ctr_cipher, aes_ctr_encrypt, aes_ctr_decrypt, get_shared_key
@@ -982,7 +987,7 @@ class LiteClient:
                 param_28 = ConfigParam28.deserialize(block.extra.custom.config.config[28])
 
                 nodes = compute_validator_set(param_28, to_block, param_34.cur_validators)
-                check_block_signatures(nodes=nodes, signatures=step['signatures']['signatures'], blk=to_block)
+                check_block_signature_set(nodes=nodes, signature_set=step['signatures'], blk=to_block)
                 last_trusted = to_block
 
             else:  # blockLinkBack
