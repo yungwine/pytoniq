@@ -43,6 +43,11 @@ async def sync(client, to_block: BlockIdExt, init_block: BlockIdExt):
     if valid_key_block_stored:
         best_key, best_key_ts = choose_key_block(key_block, key_ts, best_key, best_key_ts)
 
+    if client.last_key_block is None:
+        # The proof had no forward link (e.g. the stored mc block is already at or past to_block, which happens when
+        # liteservers lag behind each other), so no key block was set while proving. Use the trusted one.
+        client.last_key_block = best_key or key_block
+
     key_ttl = persistent_state_ttl(best_key_ts)
     logger.info(msg=f'synced! store key block {best_key} with ttl {key_ttl}')
 
