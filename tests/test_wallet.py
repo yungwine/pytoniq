@@ -6,7 +6,8 @@ import random
 import pytest_asyncio
 
 from pytoniq import BaseWallet, WalletV3R1, WalletV3R2, WalletV4R2, WalletV5R1, WalletV5WalletID, begin_cell, \
-    WalletError
+    WalletError, HighloadWalletV3, Address, StateInit
+from pytoniq.contract.wallets.highload_v3 import HIGHLOAD_V3_WALLET_CODE
 
 
 @pytest_asyncio.fixture
@@ -115,3 +116,16 @@ async def test_wallet_v5_creation(client):
     w3 = await WalletV5R1.from_mnemonic(client, mnemonics=m, wallet_id=2147483409)
     assert w3.address == w.address
 
+
+@pytest.mark.asyncio
+async def test_highload_v3_timeout(client):
+    m, w = await HighloadWalletV3.create(client, timeout=600)
+    default = await HighloadWalletV3.from_mnemonic(client, mnemonics=m)
+    same = await HighloadWalletV3.from_mnemonic(client, mnemonics=m, timeout=600)
+    expected = Address((0, StateInit(
+        code=HIGHLOAD_V3_WALLET_CODE,
+        data=HighloadWalletV3.create_data_cell(w.public_key, timeout=600),
+    ).serialize().hash))
+
+    assert w.address == same.address == expected
+    assert w.address != default.address

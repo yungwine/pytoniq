@@ -19,8 +19,9 @@ class HighloadWalletV3(Wallet):
 
     @classmethod
     async def from_data(cls, provider: LiteClientLike, public_key: bytes, wc: int = 0,
-                        wallet_id: typing.Optional[int] = None, **kwargs) -> "HighloadWalletV3":
-        data = cls.create_data_cell(public_key, wallet_id, wc)
+                        wallet_id: typing.Optional[int] = None, timeout: typing.Optional[int] = 3600,
+                        **kwargs) -> "HighloadWalletV3":
+        data = cls.create_data_cell(public_key, wallet_id, wc, timeout=timeout)
         return await super().from_code_and_data(provider, wc, HIGHLOAD_V3_WALLET_CODE, data, **kwargs)
 
     @staticmethod
@@ -35,7 +36,7 @@ class HighloadWalletV3(Wallet):
                                wallet_id: typing.Optional[int] = None, timeout: typing.Optional[int] = 3600):
         public_key = private_key_to_public_key(private_key)
         return await cls.from_data(provider=provider, wc=wc, public_key=public_key, wallet_id=wallet_id,
-                                   private_key=private_key)
+                                   timeout=timeout, private_key=private_key)
 
     @classmethod
     async def from_mnemonic(cls, provider: LiteClientLike, mnemonics: typing.Union[list, str], wc: int = 0,
@@ -44,7 +45,7 @@ class HighloadWalletV3(Wallet):
             mnemonics = mnemonics.split()
         assert mnemonic_is_valid(mnemonics), 'mnemonics are invalid!'
         _, private_key = mnemonic_to_private_key(mnemonics)
-        return await cls.from_private_key(provider, private_key, wc, wallet_id)
+        return await cls.from_private_key(provider, private_key, wc, wallet_id, timeout)
 
     @classmethod
     async def create(cls, provider: LiteClientLike, wc: int = 0, wallet_id: typing.Optional[int] = None, timeout: typing.Optional[int] = 3600):
@@ -55,7 +56,7 @@ class HighloadWalletV3(Wallet):
         :return: mnemonics and Wallet instance of provided version
         """
         mnemo = mnemonic_new(24)
-        return mnemo, await cls.from_mnemonic(provider, mnemo, wc, wallet_id)
+        return mnemo, await cls.from_mnemonic(provider, mnemo, wc, wallet_id, timeout)
 
     def pack_actions(
             self,
